@@ -138,6 +138,52 @@ ISSUE -> DIAGNOSIS | workflow_id=adb05b5a-8586-4832-a96f-c6825b95aab0 | step=Pay
 
 ---
 
+## Phase 3 — Autonomous 4-Agent System (LangGraph)
+
+Phase 3 upgrades orchestration to a full autonomous cycle:
+
+- **MonitorAgent** — Finds overdue in-progress steps ordered by risk score
+- **DiagnosisAgent** — Classifies root-cause type with validated JSON output
+- **ActionAgent** — Executes deterministic database mutations per diagnosis
+- **AuditAgent** — Writes one auditable record per processed issue
+
+### Deterministic Action Mapping
+
+- `wrong_approver` → `reroute_approver`
+- `external_hold` → `escalate_sla`
+- `duplicate_invoice` → `flag_duplicate`
+- `missing_data` → `request_data`
+- `amount_variance` → `auto_reject`
+
+`ActionAgent` also updates learning signals in `stall_patterns` (upsert + sample_count/stall_rate/last_seen updates).
+
+### Graph Flow
+
+`monitor -> diagnosis -> action -> audit -> (loop until no issues) -> END`
+
+Each issue produces:
+
+- Exactly one action result
+- Exactly one audit log entry (via `AuditAgent`)
+
+### Run Phase 3
+
+From the `backend` directory:
+
+```bash
+python -c "from graph import run_cycle; import json; print(json.dumps(run_cycle(), indent=2))"
+```
+
+Or use the runner from project root:
+
+```bash
+python backend/agents/runner.py --once
+```
+
+Runner now executes the autonomous graph and prints pipeline/audit results.
+
+---
+
 ## Testing
 
 ### Run Phase 1 Tests

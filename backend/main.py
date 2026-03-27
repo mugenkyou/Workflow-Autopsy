@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from db import get_connection, init_db, seed_data
+from db import get_connection, init_db, seed_data, repair_data
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +65,10 @@ class InjectFailureResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database and seed data on startup."""
+    """Initialize database, seed data, and repair invariants on startup."""
     init_db()
     seed_data()
+    repair_data()
     yield
 
 
@@ -111,24 +112,43 @@ def get_workflows():
         "SELECT id, name, vendor, po_amount, status, created_at FROM workflows ORDER BY created_at"
     ).fetchall()
 
+    if len(workflows) != 15:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Expected 15 workflows, found {len(workflows)}")
+
     results: List[WorkflowOut] = []
     for wf in workflows:
-        # Current step = latest step where completed_at IS NULL
+        active_count = cursor.execute(
+            "SELECT COUNT(*) FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN ('in_progress','stalled','breached')",
+            (wf["id"],),
+        ).fetchone()[0]
+        if active_count != 1:
+            conn.close()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Workflow {wf['id']} has {active_count} active steps; expected 1",
+            )
+
+        # Current step = latest active step where completed_at IS NULL
         step_row = cursor.execute(
             "SELECT id, step_name, assignee, status FROM steps "
             "WHERE workflow_id = ? AND completed_at IS NULL "
-            "ORDER BY rowid DESC LIMIT 1",
+            "AND status IN ('in_progress','stalled','breached') "
+            "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
             (wf["id"],),
         ).fetchone()
 
-        current_step = None
-        if step_row:
-            current_step = CurrentStep(
-                step_id=step_row["id"],
-                step_name=step_row["step_name"],
-                assignee=step_row["assignee"],
-                status=step_row["status"],
-            )
+        if not step_row:
+            conn.close()
+            raise HTTPException(status_code=500, detail=f"Workflow {wf['id']} has no current step")
+
+        current_step = CurrentStep(
+            step_id=step_row["id"],
+            step_name=step_row["step_name"],
+            assignee=step_row["assignee"],
+            status=step_row["status"],
+        )
 
         results.append(
             WorkflowOut(
@@ -197,12 +217,18 @@ def inject_failure(payload: InjectFailureRequest):
     if payload.failure_type == "stall":
         # Set the latest in-progress step to 'stalled'
         step = cursor.execute(
-            "SELECT id FROM steps WHERE workflow_id = ? AND completed_at IS NULL ORDER BY rowid DESC LIMIT 1",
+            "SELECT id FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL "
+            "AND status IN ('in_progress','stalled','breached') "
+            "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
             (payload.workflow_id,),
         ).fetchone()
-        if step:
-            cursor.execute("UPDATE steps SET status = 'stalled' WHERE id = ?", (step["id"],))
-            cursor.execute("UPDATE workflows SET status = 'stalled' WHERE id = ?", (payload.workflow_id,))
+        if not step:
+            conn.close()
+            raise HTTPException(status_code=409, detail="No active step found to stall")
+
+        cursor.execute("UPDATE steps SET status = 'stalled' WHERE id = ?", (step["id"],))
+        cursor.execute("UPDATE workflows SET status = 'stalled' WHERE id = ?", (payload.workflow_id,))
         message = "Step status set to 'stalled'"
 
     elif payload.failure_type == "duplicate":
@@ -213,12 +239,18 @@ def inject_failure(payload: InjectFailureRequest):
     elif payload.failure_type == "sla_breach":
         # Mark the latest in-progress step as 'breached'
         step = cursor.execute(
-            "SELECT id FROM steps WHERE workflow_id = ? AND completed_at IS NULL ORDER BY rowid DESC LIMIT 1",
+            "SELECT id FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL "
+            "AND status IN ('in_progress','stalled','breached') "
+            "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
             (payload.workflow_id,),
         ).fetchone()
-        if step:
-            cursor.execute("UPDATE steps SET status = 'breached' WHERE id = ?", (step["id"],))
-            cursor.execute("UPDATE workflows SET status = 'breached' WHERE id = ?", (payload.workflow_id,))
+        if not step:
+            conn.close()
+            raise HTTPException(status_code=409, detail="No active step found to breach")
+
+        cursor.execute("UPDATE steps SET status = 'breached' WHERE id = ?", (step["id"],))
+        cursor.execute("UPDATE workflows SET status = 'breached' WHERE id = ?", (payload.workflow_id,))
         message = "Step status set to 'breached'"
 
     conn.commit()

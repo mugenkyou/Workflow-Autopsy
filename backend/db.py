@@ -220,16 +220,188 @@ def seed_data() -> None:
                 else:
                     step_status = "in_progress"
             else:
-                # future step, not started
+                # future step, not yet active
                 step_completed = None
                 step_started = None
-                step_status = "pending"
+                step_status = "in_progress"
 
             cursor.execute(
                 "INSERT INTO steps (id, workflow_id, step_name, assignee, sla_hours, started_at, completed_at, status) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (step_id, workflow_id, step_name, assignee, sla_hours, step_started, step_completed, step_status),
             )
+
+    conn.commit()
+    conn.close()
+
+
+def repair_data() -> None:
+    """Normalize DB state to enforce Phase 2 invariants.
+
+    - No step has status 'pending' (replace with 'in_progress')
+    - Every workflow has exactly 1 active step (completed_at IS NULL)
+    - Timestamps are recalculated relative to current time
+    - At least 5 steps are overdue (started_at + sla_hours < now)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    allowed_active = ("in_progress", "stalled", "breached")
+    allowed_all = ("in_progress", "completed", "stalled", "breached")
+    now = datetime.utcnow()
+
+    # ---- 0. Normalize workflow statuses to canonical distribution ----
+    canonical_statuses = (
+        ["stalled"] * 3
+        + ["at_risk"] * 3
+        + ["breached"] * 2
+        + ["on_track"] * 7
+    )
+    ordered_wfs = cursor.execute("SELECT id FROM workflows ORDER BY created_at").fetchall()
+    for i, wf in enumerate(ordered_wfs):
+        if i < len(canonical_statuses):
+            cursor.execute(
+                "UPDATE workflows SET status = ? WHERE id = ?",
+                (canonical_statuses[i], wf["id"]),
+            )
+
+    # ---- 1. Normalize step statuses ----
+    cursor.execute("UPDATE steps SET status = 'in_progress' WHERE status = 'pending'")
+    cursor.execute(
+        "UPDATE steps SET status = 'in_progress' "
+        "WHERE completed_at IS NULL AND status NOT IN (?, ?, ?, ?)",
+        allowed_all,
+    )
+    cursor.execute(
+        "UPDATE steps SET status = 'completed' "
+        "WHERE completed_at IS NOT NULL AND status != 'completed'"
+    )
+
+    # ---- 2. Enforce exactly 1 active step per workflow ----
+    workflow_ids = [row[0] for row in cursor.execute("SELECT id FROM workflows").fetchall()]
+
+    for wf_id in workflow_ids:
+        active_steps = cursor.execute(
+            "SELECT id, rowid, started_at FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?, ?, ?) "
+            "ORDER BY datetime(COALESCE(started_at, '1970-01-01T00:00:00')) DESC, rowid DESC",
+            (wf_id, *allowed_active),
+        ).fetchall()
+
+        if len(active_steps) == 0:
+            last_step = cursor.execute(
+                "SELECT id FROM steps WHERE workflow_id = ? "
+                "ORDER BY datetime(COALESCE(started_at, '1970-01-01T00:00:00')) DESC, rowid DESC LIMIT 1",
+                (wf_id,),
+            ).fetchone()
+            if last_step:
+                cursor.execute(
+                    "UPDATE steps SET completed_at = NULL, status = 'in_progress', "
+                    "started_at = COALESCE(started_at, ?) WHERE id = ?",
+                    ((now - timedelta(hours=1)).isoformat(), last_step[0]),
+                )
+                cursor.execute(
+                    "UPDATE steps SET completed_at = ?, status = 'completed' "
+                    "WHERE workflow_id = ? AND completed_at IS NULL AND id != ?",
+                    (now.isoformat(), wf_id, last_step[0]),
+                )
+        elif len(active_steps) > 1:
+            keep_id = active_steps[0]["id"]
+            for step in active_steps[1:]:
+                cursor.execute(
+                    "UPDATE steps SET completed_at = ?, status = 'completed' WHERE id = ?",
+                    (now.isoformat(), step["id"]),
+                )
+            cursor.execute(
+                "UPDATE steps SET status = CASE WHEN status IN (?, ?, ?) THEN status ELSE 'in_progress' END "
+                "WHERE id = ?",
+                (*allowed_active, keep_id),
+            )
+
+    # ---- 3. Recalculate timestamps relative to now ----
+    random.seed(99)
+    all_workflows = cursor.execute("SELECT id FROM workflows ORDER BY created_at").fetchall()
+
+    for wf in all_workflows:
+        wf_id = wf["id"]
+        steps = cursor.execute(
+            "SELECT id FROM steps WHERE workflow_id = ? ORDER BY rowid",
+            (wf_id,),
+        ).fetchall()
+
+        active_row = cursor.execute(
+            "SELECT id, status FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?, ?, ?) "
+            "ORDER BY datetime(COALESCE(started_at, '1970-01-01T00:00:00')) DESC, rowid DESC LIMIT 1",
+            (wf_id, *allowed_active),
+        ).fetchone()
+        if not active_row:
+            continue
+        active_id = active_row["id"]
+
+        for i, step in enumerate(steps):
+            sla = random.choice([12, 18, 24])
+            if step["id"] == active_id:
+                started_at = (now - timedelta(hours=random.randint(1, 48))).isoformat()
+                cursor.execute(
+                    "UPDATE steps SET started_at = ?, completed_at = NULL, sla_hours = ?, "
+                    "status = CASE WHEN status IN (?, ?, ?) THEN status ELSE 'in_progress' END "
+                    "WHERE id = ?",
+                    (started_at, sla, *allowed_active, step["id"]),
+                )
+            else:
+                start_offset = (len(steps) - i) * 28 + random.randint(1, 8)
+                started_dt = now - timedelta(hours=start_offset)
+                duration = random.randint(1, max(1, sla - 1))
+                completed_dt = started_dt + timedelta(hours=duration)
+                if completed_dt >= now:
+                    completed_dt = now - timedelta(minutes=random.randint(5, 120))
+
+                cursor.execute(
+                    "UPDATE steps SET started_at = ?, completed_at = ?, sla_hours = ?, status = 'completed' WHERE id = ?",
+                    (started_dt.isoformat(), completed_dt.isoformat(), sla, step["id"]),
+                )
+
+    # ---- 4. Ensure at least 5 overdue active steps ----
+    overdue_count = cursor.execute(
+        "SELECT COUNT(*) FROM steps "
+        "WHERE completed_at IS NULL AND status IN (?, ?, ?) "
+        "AND datetime(started_at, '+' || sla_hours || ' hours') < datetime('now')",
+        allowed_active,
+    ).fetchone()[0]
+
+    if overdue_count < 5:
+        needed = 5 - overdue_count
+        rows = cursor.execute(
+            "SELECT id, sla_hours FROM steps "
+            "WHERE completed_at IS NULL AND status IN (?, ?, ?) "
+            "AND datetime(started_at, '+' || sla_hours || ' hours') >= datetime('now') "
+            "ORDER BY datetime(started_at) ASC LIMIT ?",
+            (*allowed_active, needed),
+        ).fetchall()
+        for row in rows:
+            older_hours = (row["sla_hours"] or 12) + random.randint(1, 24)
+            cursor.execute(
+                "UPDATE steps SET started_at = ? WHERE id = ?",
+                ((now - timedelta(hours=older_hours)).isoformat(), row["id"]),
+            )
+
+    # ---- 5. Ensure at least 5 active in_progress steps ----
+    in_prog = cursor.execute(
+        "SELECT COUNT(*) FROM steps WHERE completed_at IS NULL AND status = 'in_progress'"
+    ).fetchone()[0]
+    if in_prog < 5:
+        candidates = cursor.execute(
+            "SELECT id FROM steps "
+            "WHERE completed_at IS NULL AND status IN ('stalled', 'breached') "
+            "ORDER BY datetime(started_at) DESC LIMIT ?",
+            (5 - in_prog,),
+        ).fetchall()
+        for c in candidates:
+            cursor.execute("UPDATE steps SET status = 'in_progress' WHERE id = ?", (c[0],))
+
+    # ---- 6. Final sweep ----
+    cursor.execute("UPDATE steps SET status = 'in_progress' WHERE status = 'pending'")
 
     conn.commit()
     conn.close()

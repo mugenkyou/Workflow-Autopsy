@@ -166,6 +166,10 @@ Each issue produces:
 - Exactly one action result
 - Exactly one audit log entry (via `AuditAgent`)
 
+The graph prints cycle observability to help demos and validation:
+
+- `Total issues processed: <count>`
+
 ### Run Phase 3
 
 From the `backend` directory:
@@ -181,6 +185,28 @@ python backend/agents/runner.py --once
 ```
 
 Runner now executes the autonomous graph and prints pipeline/audit results.
+
+### Runner Demo Output
+
+Runner prints each processed issue in a readable pipeline format:
+
+```text
+ISSUE:
+   Workflow: <id>
+   Step: <step_name>
+   Risk: <risk_score>
+
+DIAGNOSIS:
+   Type: <stall_type>
+   Confidence: <confidence>
+   Reason: <reasoning>
+
+ACTION:
+   Action: <action_taken>
+   Result: <details>
+
+--------------------------------------
+```
 
 ---
 

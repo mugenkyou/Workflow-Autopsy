@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
+
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 from agents.action import ActionAgent
 from agents.audit import AuditAgent
@@ -17,6 +23,7 @@ class AgentState(TypedDict, total=False):
     action_result: dict[str, Any]
     audit_entry: dict[str, Any]
     audit_entries: list[dict[str, Any]]
+    pipeline_results: list[dict[str, Any]]
 
 
 monitor_agent = MonitorAgent()
@@ -30,6 +37,7 @@ def monitor_node(state: AgentState) -> AgentState:
     return {
         "issues": issues,
         "audit_entries": state.get("audit_entries", []),
+        "pipeline_results": state.get("pipeline_results", []),
     }
 
 
@@ -75,6 +83,7 @@ def audit_node(state: AgentState) -> AgentState:
     action_result = state.get("action_result", {})
 
     audit_entries = list(state.get("audit_entries", []))
+    pipeline_results = list(state.get("pipeline_results", []))
 
     try:
         audit_entry = audit_agent.run(issue, diagnosis, action_result)
@@ -92,11 +101,20 @@ def audit_node(state: AgentState) -> AgentState:
         }
 
     audit_entries.append(audit_entry)
+    pipeline_results.append(
+        {
+            "issue": issue,
+            "diagnosis": diagnosis,
+            "action_result": action_result,
+            "audit_entry": audit_entry,
+        }
+    )
 
     return {
         **state,
         "audit_entry": audit_entry,
         "audit_entries": audit_entries,
+        "pipeline_results": pipeline_results,
     }
 
 
@@ -127,8 +145,10 @@ def _build_graph():
 
 def run_cycle() -> list[dict[str, Any]]:
     app = _build_graph()
-    final_state = app.invoke({"issues": [], "audit_entries": []})
-    return final_state.get("audit_entries", [])
+    final_state = app.invoke({"issues": [], "audit_entries": [], "pipeline_results": []})
+    results = final_state.get("pipeline_results", [])
+    print(f"Total issues processed: {len(results)}")
+    return results
 
 
 if __name__ == "__main__":

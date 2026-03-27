@@ -69,7 +69,9 @@ class ActionAgent:
             raw = str(resp.json().get("response", "")).strip()
             sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", raw) if s.strip()]
             if len(sentences) >= 3:
-                return " ".join(sentences[:3])
+                summary = " ".join(sentences[:3]).strip()
+                if summary:
+                    return summary
         except Exception:
             pass
 
@@ -84,17 +86,19 @@ class ActionAgent:
         cur = conn.cursor()
         now = self._now_iso()
         condition = f"stall_type={stall_type}"
+        normalized_approver = (approver_id or "unassigned").strip() or "unassigned"
 
         row = cur.execute(
             "SELECT id, sample_count, stall_rate FROM stall_patterns WHERE approver_id = ? LIMIT 1",
-            (approver_id,),
+            (normalized_approver,),
         ).fetchone()
 
         stalled_event = 1 if stall_type in {"wrong_approver", "external_hold"} else 0
         if row:
-            new_sample_count = int(row["sample_count"]) + 1
+            prev_sample_count = int(row["sample_count"])
+            new_sample_count = prev_sample_count + 1
             prev_rate = float(row["stall_rate"])
-            prev_stalled = round(prev_rate * int(row["sample_count"]))
+            prev_stalled = prev_rate * prev_sample_count
             stalled_count = prev_stalled + stalled_event
             new_rate = stalled_count / max(new_sample_count, 1)
             cur.execute(
@@ -107,7 +111,7 @@ class ActionAgent:
             cur.execute(
                 "INSERT INTO stall_patterns (id, approver_id, condition, stall_rate, sample_count, last_seen) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), approver_id, condition, stall_rate, sample_count, now),
+                (str(uuid.uuid4()), normalized_approver, condition, stall_rate, sample_count, now),
             )
 
     def _safe_status_update(self, cur, step_id: str, target_status: str) -> str:
@@ -135,18 +139,26 @@ class ActionAgent:
         try:
             if stall_type == "wrong_approver":
                 action_taken = "reroute_approver"
+                row = cur.execute("SELECT assignee FROM steps WHERE id = ?", (step_id,)).fetchone()
+                old_assignee = (row["assignee"] if row and row["assignee"] else assignee)
                 backup = self._select_backup_approver(assignee, workflow_id, step_id)
                 cur.execute(
                     "UPDATE steps SET assignee = ?, status = 'in_progress' WHERE id = ?",
                     (backup, step_id),
                 )
                 new_status = "in_progress"
-                details = f"Rerouted from {assignee} to backup approver {backup}"
+                details = f"Reassigned from {old_assignee} to {backup}"
 
             elif stall_type == "external_hold":
                 action_taken = "escalate_sla"
                 new_status = self._safe_status_update(cur, step_id, "escalated")
                 summary = self._generate_escalation_summary(issue, diagnosis)
+                if not summary.strip():
+                    summary = (
+                        f"Step {step_name} is overdue by {issue.get('hours_overdue')} hours. "
+                        "Escalation is required due to external dependencies. "
+                        "Immediate follow-up is recommended."
+                    )
                 packet = {
                     "summary": summary,
                     "diagnosis": stall_type,
@@ -158,23 +170,23 @@ class ActionAgent:
                     "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
                     (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
                 )
-                details = "SLA escalated and escalation packet stored"
+                details = f"Escalated (summary: {summary[:100]})"
 
             elif stall_type == "duplicate_invoice":
                 action_taken = "flag_duplicate"
                 cur.execute("UPDATE workflows SET status = 'duplicate_hold' WHERE id = ?", (workflow_id,))
                 new_status = "duplicate_hold"
-                details = "Workflow flagged for duplicate invoice verification"
+                details = "Workflow status changed to duplicate_hold"
 
             elif stall_type == "missing_data":
                 action_taken = "request_data"
                 new_status = self._safe_status_update(cur, step_id, "pending_data")
-                details = "Requested missing supporting documents and invoice metadata"
+                details = "Step marked pending_data; requested invoice metadata and supporting documents"
 
             elif stall_type == "amount_variance":
                 action_taken = "auto_reject"
                 new_status = self._safe_status_update(cur, step_id, "rejected")
-                details = "Auto-rejected due to amount variance against expected value"
+                details = "Step rejected due to amount variance against expected value"
 
             else:
                 action_taken = "escalate_sla"

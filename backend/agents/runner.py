@@ -25,14 +25,25 @@ def execute_cycle() -> None:
 
     print(f"[{now}] Autonomous cycle complete. Audit entries created: {len(entries)}")
     for entry in entries:
-        print(
-            "PIPELINE RESULT | "
-            f"workflow_id={entry.get('workflow_id', '')} | "
-            f"step_id={entry.get('step_id', '')} | "
-            f"action={entry.get('action', '')} | "
-            f"confidence={float(entry.get('confidence', 0.0)):.2f} | "
-            f"reasoning={entry.get('reasoning', '')}"
-        )
+        issue = entry.get("issue", {})
+        diagnosis = entry.get("diagnosis", {})
+        action_result = entry.get("action_result", {})
+
+        print("ISSUE:")
+        print(f"  Workflow: {issue.get('workflow_id', '')}")
+        print(f"  Step: {issue.get('step_name', '')}")
+        print(f"  Risk: {issue.get('risk_score', '')}")
+        print("")
+        print("DIAGNOSIS:")
+        print(f"  Type: {diagnosis.get('stall_type', '')}")
+        print(f"  Confidence: {float(diagnosis.get('confidence', 0.0)):.2f}")
+        print(f"  Reason: {diagnosis.get('reasoning', '')}")
+        print("")
+        print("ACTION:")
+        print(f"  Action: {action_result.get('action_taken', '')}")
+        print(f"  Result: {action_result.get('details', '')}")
+        print("")
+        print("--------------------------------------")
 
 
 def main() -> None:

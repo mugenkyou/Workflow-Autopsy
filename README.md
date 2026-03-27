@@ -28,11 +28,11 @@ The database and seed data (15 workflows) are created automatically on first sta
 
 ### API Reference
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Returns `{"status":"ok","model":"mistral"}` |
-| `GET` | `/workflows` | Returns all 15 workflows with their current step |
-| `GET` | `/audit-log` | Returns last 50 audit log entries (newest first) |
+| Method | Endpoint          | Description                                                            |
+| ------ | ----------------- | ---------------------------------------------------------------------- |
+| `GET`  | `/health`         | Returns `{"status":"ok","model":"mistral"}`                            |
+| `GET`  | `/workflows`      | Returns all 15 workflows with their current step                       |
+| `GET`  | `/audit-log`      | Returns last 50 audit log entries (newest first)                       |
 | `POST` | `/inject-failure` | Injects a failure (`stall`, `duplicate`, `sla_breach`) into a workflow |
 
 ### Test Gates
@@ -55,10 +55,71 @@ curl -X POST http://localhost:8000/inject-failure ^
 
 ### Database Schema
 
-| Table | Purpose |
-|-------|---------|
-| `workflows` | Purchase orders with vendor, amount, and status |
-| `steps` | Individual P2P steps linked to workflows |
-| `audit_log` | Agent action history |
-| `stall_patterns` | Detected approval bottleneck patterns |
-| `escalations` | Escalation packets for stalled workflows |
+| Table            | Purpose                                         |
+| ---------------- | ----------------------------------------------- |
+| `workflows`      | Purchase orders with vendor, amount, and status |
+| `steps`          | Individual P2P steps linked to workflows        |
+| `audit_log`      | Agent action history                            |
+| `stall_patterns` | Detected approval bottleneck patterns           |
+| `escalations`    | Escalation packets for stalled workflows        |
+
+---
+
+## Phase 2 — Monitor & Diagnosis Agents
+
+Phase 2 adds autonomous failure detection and root-cause classification using a local LLM.
+
+### Architecture
+
+- **MonitorAgent** — Queries overdue in-progress steps, computes risk scores, classifies failure types
+- **DiagnosisAgent** — Calls local Ollama (mistral) to classify stall root causes (missing_data, wrong_approver, duplicate_invoice, amount_variance, external_hold)
+- **Runner** — Orchestrates continuous or one-off Monitor→Diagnosis cycles
+
+### Setup
+
+Ensure Ollama is running locally:
+
+```bash
+# In a separate terminal, start Ollama
+ollama run mistral
+```
+
+Ensure backend is running (Phase 1):
+
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
+
+### Run Agent Loop
+
+**Continuous mode** (runs every 30 seconds):
+
+```bash
+python backend/agents/runner.py
+```
+
+**Single cycle** (runs once and exits):
+
+```bash
+python backend/agents/runner.py --once
+```
+
+### Example Output
+
+```
+[2026-03-27 16:32:49] ISSUE: adb05b5a-8586-4832-a96f-c6825b95aab0 | Payment Processing | ₹5722.17
+[2026-03-27 16:32:49] Issues found: 4
+ISSUE -> DIAGNOSIS | workflow_id=adb05b5a-8586-4832-a96f-c6825b95aab0 | step=Payment Processing | risk_score=5722.17 | stall_type=external_hold | confidence=0.50 | reasoning=Default fallback due to classification failure
+```
+
+### How It Works
+
+1. **Monitor** scans the database for overdue steps (where `started_at + sla_hours < now`)
+2. Each overdue step gets a **risk_score** = `hours_overdue × po_amount × 0.001`
+3. Steps are classified by failure type:
+   - "Approval" steps → `stall`
+   - "Invoice" steps with duplicate detection → `duplicate`
+   - Others → `sla_breach`
+4. **Diagnosis** takes each issue and calls Ollama to determine the underlying cause
+5. Results are printed in a structured format for inspection or downstream processing

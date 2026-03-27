@@ -121,5 +121,66 @@ ISSUE -> DIAGNOSIS | workflow_id=adb05b5a-8586-4832-a96f-c6825b95aab0 | step=Pay
    - "Approval" steps → `stall`
    - "Invoice" steps with duplicate detection → `duplicate`
    - Others → `sla_breach`
-4. **Diagnosis** takes each issue and calls Ollama to determine the underlying cause
+4. **Diagnosis** takes each issue and calls Ollama to determine the underlying cause:
+   - Strict JSON-only prompt ensures valid responses
+   - Retry logic (max 2 retries) on parse/validation failure
+   - Fallback only after retries exhausted
+   - Debug logging shows raw LLM output for inspection
 5. Results are printed in a structured format for inspection or downstream processing
+
+### Diagnosis Agent Features
+
+- **Strict JSON enforcement** — Mistral responses are strictly validated as JSON
+- **Smart retry logic** — Retries with stricter prompts before falling back
+- **Debug output** — RAW LLM OUTPUT logged to stderr for troubleshooting
+- **Pydantic validation** — All diagnosis results validated against schema
+- **Allowed classifications** — `missing_data`, `wrong_approver`, `duplicate_invoice`, `amount_variance`, `external_hold`
+
+---
+
+## Testing
+
+### Run Phase 1 Tests
+
+```bash
+# Ensure backend server is running
+cd backend
+uvicorn main:app --reload --port 8000
+```
+
+In another terminal:
+
+```bash
+python tests/test_api.py
+```
+
+**Expected output:** ✅ 10 passed, 0 failed
+
+Phase 1 test coverage:
+
+- ✅ `/health` endpoint returns correct JSON
+- ✅ `/workflows` returns exactly 15 workflows
+- ✅ All workflows have exactly 1 current_step
+- ✅ No step has status 'pending'
+- ✅ Status distribution: 3+ stalled, 3+ at_risk, 2+ breached, 7 on_track
+- ✅ At least 5 workflows have in_progress current step
+- ✅ `/audit-log` returns audit entries
+- ✅ `/inject-failure` — stall fixture works
+- ✅ `/inject-failure` — duplicate fixture works
+- ✅ `/inject-failure` — sla_breach fixture works
+
+### Database Reset
+
+If the database gets corrupted or out of sync, rebuild it:
+
+```bash
+python -c "from backend.db import init_db, seed_data, repair_data; init_db(); seed_data(); repair_data(); print('Database restored')"
+```
+
+This ensures:
+
+- All 15 workflows present with correct status distribution
+- Exactly 1 active step per workflow
+- No 'pending' statuses
+- Dynamic timestamps (1-48 hours ago)
+- Minimum 5 overdue steps for agent detection

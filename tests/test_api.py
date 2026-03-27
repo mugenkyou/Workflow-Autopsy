@@ -8,7 +8,9 @@ Run: python tests/test_api.py  (server must be running on port 8000)
 import urllib.request
 import json
 import sys
+import os
 from datetime import datetime
+from pathlib import Path
 
 BASE = "http://localhost:8000"
 
@@ -103,12 +105,31 @@ def _get_inject_ids():
     return _INJECT_TEST_IDS
 
 
+def _restore_workflow(workflow_id: str):
+    """Restore a workflow to on_track status after inject test."""
+    sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+    from db import get_connection
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE workflows SET status = 'on_track' WHERE id = ?", (workflow_id,))
+    # Also reset the current step to in_progress
+    cursor.execute(
+        "UPDATE steps SET status = 'in_progress', completed_at = NULL "
+        "WHERE workflow_id = ? AND completed_at IS NULL",
+        (workflow_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 def test_inject_failure_stall():
     ids = _get_inject_ids()
     assert len(ids) >= 3, f"Need at least 3 on_track workflows, got {len(ids)}"
     resp = _post("/inject-failure", {"workflow_id": ids[0], "failure_type": "stall"})
     assert resp["success"] is True, f"FAIL: {resp}"
     print(f"PASS  /inject-failure (stall) -> {resp['message']}")
+    # Restore workflow for next test
+    _restore_workflow(ids[0])
 
 
 def test_inject_failure_duplicate():
@@ -116,6 +137,8 @@ def test_inject_failure_duplicate():
     resp = _post("/inject-failure", {"workflow_id": ids[1], "failure_type": "duplicate"})
     assert resp["success"] is True, f"FAIL: {resp}"
     print(f"PASS  /inject-failure (duplicate) -> {resp['message']}")
+    # Restore workflow for next test
+    _restore_workflow(ids[1])
 
 
 def test_inject_failure_sla_breach():
@@ -123,6 +146,8 @@ def test_inject_failure_sla_breach():
     resp = _post("/inject-failure", {"workflow_id": ids[2], "failure_type": "sla_breach"})
     assert resp["success"] is True, f"FAIL: {resp}"
     print(f"PASS  /inject-failure (sla_breach) -> {resp['message']}")
+    # Restore workflow for next test
+    _restore_workflow(ids[2])
 
 
 # ---------- Runner ----------

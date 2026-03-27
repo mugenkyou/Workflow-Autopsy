@@ -98,7 +98,7 @@ class MonitorAgent:
             issues.append(issue)
 
             ts = now.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] ISSUE: {issue['workflow_id']} | {issue['step_name']} | ₹{issue['risk_score']:.2f}")
+            print(f"[{ts}] ISSUE: {issue['workflow_id']} | {issue['step_name']} | Risk: {issue['risk_score']:.2f}")
 
         conn.close()
 

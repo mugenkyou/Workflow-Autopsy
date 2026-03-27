@@ -66,58 +66,83 @@ class DiagnosisAgent:
         )
 
     def _build_prompt(self, issue_details: dict[str, Any], pattern_summary: str, strict_mode: bool = False) -> str:
-        """Build grounded prompt with explicit issue fields and anti-hallucination constraints."""
+        """Build grounded prompt with strict rules and minimal room for interpretation."""
+        step_name = issue_details.get('step_name', '')
+        hours_overdue = float(issue_details.get('hours_overdue', 0))
+        assignee = issue_details.get('assignee', '')
+
         details_block = (
             "Issue Details:\n"
             f"- workflow_id: {issue_details.get('workflow_id')}\n"
-            f"- step_name: {issue_details.get('step_name')}\n"
-            f"- assignee: {issue_details.get('assignee')}\n"
-            f"- hours_overdue: {issue_details.get('hours_overdue')}\n"
+            f"- step_name: {step_name}\n"
+            f"- assignee: {assignee}\n"
+            f"- hours_overdue: {hours_overdue}\n"
             f"- risk_score: {issue_details.get('risk_score')}\n"
             f"- failure_type: {issue_details.get('failure_type')}\n"
         )
 
-        constraints = (
-            "\nIMPORTANT CONSTRAINTS:\n"
-            "- ALL required fields are provided above. Do NOT claim missing data.\n"
-            "- Base reasoning ONLY on the given values.\n"
-            "- Never say 'data is missing' or 'field is missing'.\n"
-            "- If unsure, choose the most plausible classification with lower confidence.\n"
-            "- Reasoning must reference the step_name, assignee, or delay duration.\n"
-        )
+        # Determine classification based on explicit rules
+        if 'Payment' in step_name and 'Processing' in step_name:
+            suggested_type = "external_hold"
+            suggested_confidence = "0.70-0.75"
+            reason_fragment = "payment delays are external (vendor/banking)"
+        elif 'Approval' in step_name and hours_overdue > 20:
+            suggested_type = "wrong_approver"
+            suggested_confidence = "0.80-0.85"
+            reason_fragment = "delay >20h indicates wrong approver"
+        elif 'Approval' in step_name and 6 <= hours_overdue <= 20:
+            suggested_type = "external_hold"
+            suggested_confidence = "0.65-0.75"
+            reason_fragment = "moderate 6-20h delay suggests external block"
+        elif 'Approval' in step_name:  # <6 hours
+            suggested_type = "external_hold"
+            suggested_confidence = "0.55-0.65"
+            reason_fragment = "short <6h delay, likely vendor/workflow"
+        elif 'Invoice' in step_name:
+            suggested_type = "duplicate_invoice"
+            suggested_confidence = "0.70-0.80"
+            reason_fragment = "invoice processing issue"
+        else:
+            suggested_type = "external_hold"
+            suggested_confidence = "0.65-0.75"
+            reason_fragment = "default external cause"
 
         rules = (
-            "\nClassification Rules:\n"
-            "- If step involves approval AND delay is significant → wrong_approver\n"
-            "- If step is invoice-related AND duplicate pattern exists → duplicate_invoice\n"
-            "- If amount discrepancy implied → amount_variance\n"
-            "- If payment/processing delay without clear cause → external_hold\n"
-            "- Use missing_data ONLY if actual data validation shows gaps.\n"
+            "\nFOLLOW THIS EXACTLY:\n"
+            f"Your classification MUST be: {suggested_type}\n"
+            f"Confidence range MUST be: {suggested_confidence}\n"
+            f"Reason: {reason_fragment}\n"
+            "\nAllowed types: wrong_approver, external_hold, duplicate_invoice, amount_variance, missing_data\n"
+            f"You MUST output stall_type='{suggested_type}' and confidence in range {suggested_confidence}.\n"
+            "Do NOT use any other type. Do NOT deviate from this.\n"
         )
 
-        confidence_rule = (
-            "\nConfidence Rules:\n"
-            "- High confidence (0.85+) if classification is clear and supported by data.\n"
-            "- Medium confidence (0.60-0.79) if classification is plausible but uncertain.\n"
-            "- Low confidence (< 0.60) only if data is truly ambiguous.\n"
+        reasoning_format = (
+            "\nReasoning must be:\n"
+            "- Exactly 1 sentence\n"
+            f"- Reference '{assignee}' (assignee name)\n"
+            f"- Reference '{step_name}' (step)\n"
+            f"- Reference '{hours_overdue}' hours overdue\n"
+            "- Explain why this classification was chosen\n"
+            f"- Example: 'The {step_name} step by {assignee} is {hours_overdue} hours overdue, {reason_fragment}.'\n"
         )
 
         json_format = (
-            '\nOutput ONLY valid JSON:\n'
-            '{"stall_type":"...", "confidence": 0.0-1.0, "reasoning": "one sentence referencing actual data"}\n'
+            '\nOutput format:\n'
+            '{"stall_type":"' + suggested_type + '", "confidence": FLOAT_BETWEEN_0_AND_1, "reasoning": "your sentence here"}\n'
+            'MUST output this exact structure.\n'
         )
 
         if strict_mode:
             return (
-                "You are a precise P2P workflow analyzer. Generate ONLY valid JSON output.\n"
-                f"{details_block}{constraints}{rules}{confidence_rule}"
-                "OUTPUT ONLY THE JSON OBJECT. NO EXTRA TEXT.\n"
-                f"{json_format}"
+                "You are a P2P workflow classifier. OUTPUT VALID JSON ONLY.\n"
+                f"{details_block}{rules}{reasoning_format}{json_format}"
+                "STOP. OUTPUT ONLY THE JSON OBJECT. NO EXTRA TEXT.\n"
             )
         return (
-            "You are a precise P2P workflow analyzer. Classify the stall root cause based on the issue details provided.\n"
+            "Classify this P2P workflow issue. Output valid JSON only.\n"
             f"{details_block}\nHistorical pattern: {pattern_summary}\n"
-            f"{constraints}{rules}{confidence_rule}{json_format}"
+            f"{rules}{reasoning_format}{json_format}"
         )
 
     def _fallback(self) -> dict[str, Any]:

@@ -66,7 +66,7 @@ class DiagnosisAgent:
         )
 
     def _build_prompt(self, issue_details: dict[str, Any], pattern_summary: str, strict_mode: bool = False) -> str:
-        """Build grounded prompt with strict rules and minimal room for interpretation."""
+        """Build grounded prompt with suggested classification and controlled override capability."""
         step_name = issue_details.get('step_name', '')
         hours_overdue = float(issue_details.get('hours_overdue', 0))
         assignee = issue_details.get('assignee', '')
@@ -108,39 +108,48 @@ class DiagnosisAgent:
             reason_fragment = "default external cause"
 
         rules = (
-            "\nFOLLOW THIS EXACTLY:\n"
-            f"Your classification MUST be: {suggested_type}\n"
-            f"Confidence range MUST be: {suggested_confidence}\n"
-            f"Reason: {reason_fragment}\n"
+            "\nCLASSIFICATION GUIDANCE:\n"
+            f"Suggested classification: {suggested_type}\n"
+            f"Expected confidence range: {suggested_confidence}\n"
+            "\nYou may override this suggestion ONLY if strong evidence contradicts it.\n"
+            "\nOverride Rules:\n"
+            "- Override only if reasoning strongly supports a different cause\n"
+            "- If overriding, clearly explain why the suggested classification is incorrect\n"
+            "- Overrides should be rare (not more than 1-2 in a batch)\n"
+            "- If you override, reduce confidence below 0.75\n"
+            "\nAmbiguity Handling:\n"
+            "- If multiple explanations are plausible, pick the most likely\n"
+            "- BUT reduce confidence to 0.60-0.70 to reflect uncertainty\n"
+            "- Include uncertainty language in reasoning\n"
             "\nAllowed types: wrong_approver, external_hold, duplicate_invoice, amount_variance, missing_data\n"
-            f"You MUST output stall_type='{suggested_type}' and confidence in range {suggested_confidence}.\n"
-            "Do NOT use any other type. Do NOT deviate from this.\n"
         )
 
         reasoning_format = (
-            "\nReasoning must be:\n"
+            "\nReasoning Requirements:\n"
             "- Exactly 1 sentence\n"
-            f"- Reference '{assignee}' (assignee name)\n"
-            f"- Reference '{step_name}' (step)\n"
+            f"- Reference '{assignee}' (assignee name) and '{step_name}' (step)\n"
             f"- Reference '{hours_overdue}' hours overdue\n"
-            "- Explain why this classification was chosen\n"
-            f"- Example: 'The {step_name} step by {assignee} is {hours_overdue} hours overdue, {reason_fragment}.'\n"
+            "- Explain causal logic (WHY this classification)\n"
+            "\nIf overriding suggested classification:\n"
+            "- Include a phrase explaining disagreement\n"
+            f"- Example: 'Although delay suggests {suggested_type}, evidence indicates external dependency instead.'\n"
+            "\nDo NOT use identical reasoning patterns in each response.\n"
         )
 
         json_format = (
             '\nOutput format:\n'
-            '{"stall_type":"' + suggested_type + '", "confidence": FLOAT_BETWEEN_0_AND_1, "reasoning": "your sentence here"}\n'
-            'MUST output this exact structure.\n'
+            '{"stall_type":"example", "confidence": 0.75, "reasoning": "your analytical sentence here"}\n'
+            'Must be valid JSON with confidence between 0.0 and 1.0.\n'
         )
 
         if strict_mode:
             return (
-                "You are a P2P workflow classifier. OUTPUT VALID JSON ONLY.\n"
+                "You are a contextual P2P workflow analyst. Output valid JSON only.\n"
                 f"{details_block}{rules}{reasoning_format}{json_format}"
-                "STOP. OUTPUT ONLY THE JSON OBJECT. NO EXTRA TEXT.\n"
+                "Analyze carefully. Output ONLY the json object, no extra text.\n"
             )
         return (
-            "Classify this P2P workflow issue. Output valid JSON only.\n"
+            "Analyze this P2P workflow issue and provide reasoned classification.\n"
             f"{details_block}\nHistorical pattern: {pattern_summary}\n"
             f"{rules}{reasoning_format}{json_format}"
         )

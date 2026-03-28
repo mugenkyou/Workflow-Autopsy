@@ -42,6 +42,19 @@
   border-left: 3px solid #10b981;
   border-radius: 6px;
   padding: 0.65rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.solved-item:hover {
+  background: #151e3f;
+  border-color: #059669;
+  border-left-color: #34d399;
+}
+
+.solved-item:focus-visible {
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
 }
 
 .solved-top {

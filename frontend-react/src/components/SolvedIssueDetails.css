@@ -1,0 +1,135 @@
+.solved-details-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.solved-details-panel {
+  background: #0f1535;
+  border: 1px solid #1e2749;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  margin-right: 1rem;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.solved-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #1e2749;
+  flex-shrink: 0;
+}
+
+.solved-details-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.solved-details-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.solved-details-close:hover {
+  color: #f3f4f6;
+}
+
+.solved-details-content {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.detail-section label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-section p {
+  margin: 0;
+  color: #e5e7eb;
+  font-size: 0.95rem;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.detail-badge {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.summary-box {
+  background: #1a1f3a;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  padding: 1rem;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.summary-box p {
+  margin: 0;
+}
+
+.summary-box strong {
+  color: #f3f4f6;
+}
+
+.resolution-box {
+  background: #064e3b;
+  border: 1px solid #10b981;
+  border-left: 3px solid;
+  border-radius: 6px;
+  padding: 0.85rem;
+  color: #d1fae5;
+  font-size: 0.88rem;
+  font-weight: 500;
+}

@@ -1,4 +1,4 @@
-console.log("Phase 5 Dashboard loading...");
+console.log("Phase 6 Dashboard loading...");
 const { useState, useEffect } = React;
 
 // ============================================================================
@@ -43,12 +43,28 @@ function getStatusBorderColor(status) {
     return 'transparent';
 }
 
+function getFailureTypeColor(failureType) {
+    if (!failureType) return '#6b7280';
+    const f = failureType.toLowerCase();
+    if (f === 'stall') return '#8b5cf6';
+    if (f === 'duplicate') return '#ef4444';
+    if (f === 'sla_breach') return '#f59e0b';
+    return '#6b7280';
+}
+
+function getRiskRowBackground(riskScore) {
+    if (riskScore > 50000) return '#7f1d1d';
+    if (riskScore > 10000) return '#7c2d12';
+    return '#1f2937';
+}
+
 // ============================================================================
 // Global State & Polling
 // ============================================================================
 
 let workflowsCache = [];
 let auditCache = [];
+let activeIssuesCache = [];
 
 async function pollWorkflows() {
     try {
@@ -56,9 +72,8 @@ async function pollWorkflows() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         workflowsCache = Array.isArray(data) ? data : [];
-        console.log("Workflows fetched:", workflowsCache.length);
     } catch (err) {
-        console.error("Workflows fetch error:", err);
+        console.error('Workflows fetch error:', err);
     }
 }
 
@@ -68,15 +83,132 @@ async function pollAuditLog() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         auditCache = Array.isArray(data) ? data : [];
-        console.log("Audit entries fetched:", auditCache.length);
     } catch (err) {
-        console.error("Audit fetch error:", err);
+        console.error('Audit fetch error:', err);
+    }
+}
+
+async function pollActiveIssues() {
+    try {
+        const resp = await fetch('http://localhost:8000/active-issues');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        activeIssuesCache = (data.issues || []).sort((a, b) => b.risk_score - a.risk_score);
+    } catch (err) {
+        console.error('Active issues fetch error:', err);
     }
 }
 
 // ============================================================================
 // Components
 // ============================================================================
+
+function Toast({ message, type = 'info', visible = true, onClose }) {
+    if (!visible) return null;
+    
+    const bgColor = type === 'error' ? '#7f1d1d' : type === 'success' ? '#064e3b' : '#1e40af';
+    const borderColor = type === 'error' ? '#991b1b' : type === 'success' ? '#047857' : '#1e40af';
+    const textColor = type === 'error' ? '#fca5a5' : type === 'success' ? '#6ee7b7' : '#93c5fd';
+    
+    useEffect(() => {
+        const timer = setTimeout(onClose, 4000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+    
+    return (
+        <div style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            background: bgColor,
+            border: `1px solid ${borderColor}`,
+            borderRadius: '6px',
+            padding: '12px 16px',
+            color: textColor,
+            fontSize: '13px',
+            zIndex: 1000,
+            animation: 'slideIn 0.3s ease',
+            maxWidth: '300px'
+        }}>
+            {message}
+        </div>
+    );
+}
+
+function RiskQueue({ issues, totalExposure }) {
+    const [resolvedIds, setResolvedIds] = useState(new Set());
+    
+    return (
+        <div style={{ padding: '16px', borderTop: '1px solid #334155' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '14px', color: '#f1f5f9', fontWeight: 'bold' }}>
+                    Active Issues
+                </h3>
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    Exposure: {formatCurrency(totalExposure)}
+                </span>
+            </div>
+            
+            {issues.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#10b981' }}>
+                    <span style={{ fontSize: '24px' }}>✓</span>
+                    <p style={{ margin: '8px 0 0 0', fontSize: '13px' }}>All issues resolved</p>
+                </div>
+            ) : (
+                <div style={{ space: '6px' }}>
+                    {issues.map((issue, idx) => (
+                        <div
+                            key={issue.step_id}
+                            style={{
+                                background: getRiskRowBackground(issue.risk_score),
+                                border: '1px solid #475569',
+                                borderRadius: '4px',
+                                padding: '10px',
+                                marginBottom: '6px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                fontSize: '12px',
+                                animation: 'slideIn 0.3s ease'
+                            }}
+                        >
+                            <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                    <span style={{ fontWeight: 'bold', color: '#9ca3af', fontSize: '11px' }}>#{idx + 1}</span>
+                                    <span style={{
+                                        background: getFailureTypeColor(issue.failure_type),
+                                        color: 'white',
+                                        padding: '2px 6px',
+                                        borderRadius: '3px',
+                                        fontSize: '10px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {issue.failure_type}
+                                    </span>
+                                    <span style={{ color: '#cbd5e1', fontWeight: 'bold' }}>
+                                        {issue.step_name}
+                                    </span>
+                                </div>
+                                <p style={{ margin: '2px 0', fontSize: '11px', color: '#9ca3af' }}>
+                                    {issue.hours_overdue}h overdue • {issue.assignee}
+                                </p>
+                            </div>
+                            <span style={{
+                                color: '#86efac',
+                                fontWeight: 'bold',
+                                fontSize: '13px',
+                                minWidth: '80px',
+                                textAlign: 'right'
+                            }}>
+                                {formatCurrency(issue.risk_score)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 function WorkflowCard({ workflow, onClick }) {
     const borderColor = getStatusBorderColor(workflow.status);
@@ -351,8 +483,40 @@ function AuditTrail({ auditLog }) {
 function App() {
     const [workflows, setWorkflows] = useState([]);
     const [auditLog, setAuditLog] = useState([]);
+    const [activeIssues, setActiveIssues] = useState([]);
     const [selectedWorkflow, setSelectedWorkflow] = useState(null);
-    const [error, setError] = useState(null);
+    const [toastVisible, setToastVisible] = useState(false);
+    const [toastMessage, setToastMessage] = useState('');
+    const [toastType, setToastType] = useState('info');
+    const [breakItLoading, setBreakItLoading] = useState(false);
+    const [totalExposure, setTotalExposure] = useState(0);
+    
+    const showToast = (message, type = 'info') => {
+        setToastMessage(message);
+        setToastType(type);
+        setToastVisible(true);
+    };
+    
+    const handleBreakIt = async () => {
+        setBreakItLoading(true);
+        try {
+            const resp = await fetch('http://localhost:8000/inject-chaos', { method: 'POST' });
+            if (resp.ok) {
+                showToast('3 failures injected — agents triaging', 'info');
+                // Re-poll immediately
+                setTimeout(() => {
+                    pollActiveIssues();
+                    setActiveIssues([...activeIssuesCache]);
+                }, 500);
+            } else {
+                showToast('Failed to inject chaos', 'error');
+            }
+        } catch (err) {
+            showToast(`Error: ${err.message}`, 'error');
+        } finally {
+            setBreakItLoading(false);
+        }
+    };
     
     useEffect(() => {
         console.log("App mounted, starting polling...");
@@ -360,8 +524,11 @@ function App() {
         const loadData = async () => {
             await pollWorkflows();
             await pollAuditLog();
+            await pollActiveIssues();
             setWorkflows([...workflowsCache]);
             setAuditLog([...auditCache]);
+            setActiveIssues([...activeIssuesCache]);
+            setTotalExposure(activeIssuesCache.reduce((sum, issue) => sum + issue.risk_score, 0));
         };
         
         loadData();
@@ -376,9 +543,16 @@ function App() {
             setAuditLog([...auditCache]);
         }, 3000);
         
+        const issuesInterval = setInterval(() => {
+            pollActiveIssues();
+            setActiveIssues([...activeIssuesCache]);
+            setTotalExposure(activeIssuesCache.reduce((sum, issue) => sum + issue.risk_score, 0));
+        }, 5000);
+        
         return () => {
             clearInterval(workflowInterval);
             clearInterval(auditInterval);
+            clearInterval(issuesInterval);
         };
     }, []);
     
@@ -390,19 +564,46 @@ function App() {
             background: '#0f172a',
             color: '#e2e8f0'
         }}>
-            {/* Header */}
+            {/* Header with Break It Button */}
             <div style={{
                 background: '#1e293b',
                 borderBottom: '1px solid #334155',
-                padding: '16px 20px',
+                padding: '12px 20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 flexShrink: 0
             }}>
-                <h1 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: 'bold' }}>
-                    Process Autopsy Agent Dashboard
-                </h1>
-                <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                    Real-time autonomous workflow monitoring
-                </p>
+                <div>
+                    <h1 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: 'bold' }}>
+                        Process Autopsy Agent Dashboard
+                    </h1>
+                    <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                        Real-time autonomous workflow monitoring
+                    </p>
+                </div>
+                
+                <button
+                    onClick={handleBreakIt}
+                    disabled={breakItLoading}
+                    style={{
+                        background: breakItLoading ? '#dc2626' : '#ef4444',
+                        color: 'white',
+                        border: 'none',
+                        padding: '10px 16px',
+                        borderRadius: '6px',
+                        cursor: breakItLoading ? 'wait' : 'pointer',
+                        fontWeight: 'bold',
+                        fontSize: '13px',
+                        display: 'flex',
+                        gap: '6px',
+                        alignItems: 'center',
+                        transition: 'all 0.3s ease',
+                        opacity: breakItLoading ? 0.7 : 1
+                    }}
+                >
+                    ⚡ {breakItLoading ? 'Injecting...' : 'Break It'}
+                </button>
             </div>
             
             {/* Main Content */}
@@ -420,36 +621,30 @@ function App() {
                     />
                 </div>
                 
-                {/* Right: Audit Trail + Agent Feed (40%) */}
+                {/* Right Panel: Audit Trail + Risk Queue (40%) */}
                 <div style={{
                     flex: '1',
                     display: 'flex',
                     flexDirection: 'column',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    background: '#0f172a'
                 }}>
                     {/* Audit Trail */}
                     <div style={{
                         flex: '1',
                         borderBottom: '1px solid #334155',
-                        overflow: 'hidden',
-                        background: '#0f172a'
+                        overflow: 'hidden'
                     }}>
                         <AuditTrail auditLog={auditLog} />
                     </div>
                     
-                    {/* Agent Feed Placeholder */}
+                    {/* Risk Queue */}
                     <div style={{
                         flex: '1',
-                        overflow: 'hidden',
-                        background: '#0f172a',
-                        padding: '16px'
+                        overflow: 'y-auto',
+                        borderTop: '1px solid #334155'
                     }}>
-                        <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#f1f5f9', fontWeight: 'bold' }}>
-                            Agent Feed
-                        </h3>
-                        <div style={{ color: '#64748b', fontSize: '12px' }}>
-                            Live agent activity will appear here
-                        </div>
+                        <RiskQueue issues={activeIssues} totalExposure={totalExposure} />
                     </div>
                 </div>
             </div>
@@ -461,6 +656,14 @@ function App() {
                 isOpen={!!selectedWorkflow}
                 onClose={() => setSelectedWorkflow(null)}
             />
+            
+            {/* Toast Notification */}
+            <Toast
+                message={toastMessage}
+                type={toastType}
+                visible={toastVisible}
+                onClose={() => setToastVisible(false)}
+            />
         </div>
     );
 }
@@ -469,6 +672,6 @@ function App() {
 // Render
 // ============================================================================
 
-console.log("Rendering app...");
+console.log("Rendering Phase 6 app...");
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);

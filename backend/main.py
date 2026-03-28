@@ -4,6 +4,7 @@ FastAPI application for Process Autopsy Agent — Phase 1.
 
 from contextlib import asynccontextmanager
 from typing import List, Optional
+import random
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 
 from db import get_connection, init_db, seed_data, repair_data
 from graph import run_cycle
+from agents.monitor import MonitorAgent
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +50,29 @@ class AuditLogEntry(BaseModel):
     reasoning: Optional[str]
     confidence: Optional[float]
     timestamp: Optional[str]
+
+
+class ActiveIssue(BaseModel):
+    workflow_id: str
+    step_id: str
+    step_name: str
+    assignee: str
+    failure_type: str
+    hours_overdue: float
+    risk_score: float
+
+
+class ActiveIssuesResponse(BaseModel):
+    success: bool
+    issues: List[ActiveIssue]
+    total_risk_exposure: float
+
+
+class InjectChaosResponse(BaseModel):
+    success: bool
+    message: str
+    failures_injected: List[str]
+    audit_entries: List[AuditLogEntry]
 
 
 class InjectFailureRequest(BaseModel):
@@ -306,4 +331,123 @@ def run_autonomous_cycle():
             issues_processed=0,
             audit_entries=[],
             message=f"Cycle failed: {str(e)}",
+        )
+
+
+@app.get("/active-issues", response_model=ActiveIssuesResponse)
+def get_active_issues():
+    """Get all active issues ranked by risk score (highest first)."""
+    try:
+        monitor = MonitorAgent()
+        issues = monitor.run()
+        
+        # Sort by risk_score descending
+        sorted_issues = sorted(issues, key=lambda x: x.get("risk_score", 0), reverse=True)
+        
+        # Convert to ActiveIssue models
+        issue_models = [
+            ActiveIssue(
+                workflow_id=issue["workflow_id"],
+                step_id=issue["step_id"],
+                step_name=issue["step_name"],
+                assignee=issue["assignee"],
+                failure_type=issue["failure_type"],
+                hours_overdue=issue["hours_overdue"],
+                risk_score=issue["risk_score"],
+            )
+            for issue in sorted_issues
+        ]
+        
+        # Calculate total risk exposure (sum of all risk scores)
+        total_risk_exposure = sum(issue.risk_score for issue in issue_models)
+        
+        return ActiveIssuesResponse(
+            success=True,
+            issues=issue_models,
+            total_risk_exposure=round(total_risk_exposure, 2),
+        )
+    
+    except Exception as e:
+        print(f"Error in get_active_issues: {e}")
+        return ActiveIssuesResponse(
+            success=False,
+            issues=[],
+            total_risk_exposure=0.0,
+        )
+
+
+@app.post("/inject-chaos", response_model=InjectChaosResponse)
+def inject_chaos():
+    """Inject 3 random failures (stall, duplicate, sla_breach) and run cycle."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Get all workflow IDs
+        all_workflows = cursor.execute("SELECT id, po_amount FROM workflows").fetchall()
+        conn.close()
+        
+        if len(all_workflows) < 3:
+            raise HTTPException(status_code=400, detail="Not enough workflows to inject 3 failures")
+        
+        # Pick 3 random workflows
+        selected = random.sample(all_workflows, 3)
+        workflow_1 = selected[0]["id"]
+        workflow_2 = selected[1]["id"]
+        workflow_3 = selected[2]["id"]
+        
+        # Inject the failures
+        failures_injected = []
+        
+        try:
+            inject_failure(InjectFailureRequest(workflow_id=workflow_1, failure_type="stall"))
+            failures_injected.append(f"stall → {workflow_1}")
+        except Exception as e:
+            print(f"Failed to inject stall: {e}")
+        
+        try:
+            inject_failure(InjectFailureRequest(workflow_id=workflow_2, failure_type="duplicate"))
+            failures_injected.append(f"duplicate → {workflow_2}")
+        except Exception as e:
+            print(f"Failed to inject duplicate: {e}")
+        
+        try:
+            inject_failure(InjectFailureRequest(workflow_id=workflow_3, failure_type="sla_breach"))
+            failures_injected.append(f"sla_breach → {workflow_3}")
+        except Exception as e:
+            print(f"Failed to inject sla_breach: {e}")
+        
+        # Run cycle immediately
+        try:
+            cycle_result = run_cycle()
+            entries = [
+                AuditLogEntry(
+                    id=entry.get("id", ""),
+                    workflow_id=entry.get("workflow_id"),
+                    step_id=entry.get("step_id"),
+                    agent_name=entry.get("agent_name"),
+                    action=entry.get("action"),
+                    reasoning=entry.get("reasoning"),
+                    confidence=entry.get("confidence"),
+                    timestamp=entry.get("timestamp"),
+                )
+                for entry in (cycle_result or [])
+            ]
+        except Exception as e:
+            print(f"Cycle execution failed: {e}")
+            entries = []
+        
+        return InjectChaosResponse(
+            success=True,
+            message=f"Chaos injected: {len(failures_injected)} failures, running cycle...",
+            failures_injected=failures_injected,
+            audit_entries=entries,
+        )
+    
+    except Exception as e:
+        return InjectChaosResponse(
+            success=False,
+            message=f"Chaos injection failed: {str(e)}",
+            failures_injected=[],
+            audit_entries=[],
         )

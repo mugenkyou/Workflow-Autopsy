@@ -103,7 +103,10 @@ export default function App() {
 
         const incomingIssues = res.data?.issues || [];
         const incomingMap = new Map(
-          incomingIssues.map((issue) => [`${issue.workflow_id}|${issue.step_id}`, issue]),
+          incomingIssues.map((issue) => [
+            `${issue.workflow_id}|${issue.step_id}`,
+            issue,
+          ]),
         );
 
         const resolvedNow = [];
@@ -185,7 +188,9 @@ export default function App() {
         const activeIds = new Set(newEscalations.map((e) => e.id));
 
         setEscalations(newEscalations);
-        setEscalationQueue((prev) => prev.filter((item) => activeIds.has(item.id)));
+        setEscalationQueue((prev) =>
+          prev.filter((item) => activeIds.has(item.id)),
+        );
 
         if (selectedEscalation && !activeIds.has(selectedEscalation.id)) {
           setSelectedEscalation(null);
@@ -205,7 +210,9 @@ export default function App() {
         if (queueCandidates.length > 0) {
           setEscalationQueue((prev) => {
             const existingIds = new Set(prev.map((item) => item.id));
-            const additions = queueCandidates.filter((item) => !existingIds.has(item.id));
+            const additions = queueCandidates.filter(
+              (item) => !existingIds.has(item.id),
+            );
             return additions.length ? [...prev, ...additions] : prev;
           });
         }
@@ -273,7 +280,14 @@ export default function App() {
   const handleStopAgent = async () => {
     try {
       await stopAgent();
-      addToast("Agent stopped", "info");
+      // Immediately clear everything and unlock Break It
+      resolutionLockedRef.current = false;
+      setResolutionLocked(false);
+      setActiveIssues([]);
+      setSolvedIssues([]);
+      activeIssueMapRef.current = new Map();
+      seenInjectedIssuesRef.current = false;
+      addToast("Agent stopped. Break It is ready again.", "success");
     } catch (err) {
       addToast(`Error: ${err.message}`, "error");
     }
@@ -420,7 +434,10 @@ export default function App() {
         {/* Middle: Active + Solved Issues */}
         <div className="middle-panel">
           <RiskQueue issues={activeIssues} onIssueClick={handleIssueClick} />
-          <SolvedIssues issues={solvedIssues} onIssueClick={handleSolvedIssueClick} />
+          <SolvedIssues
+            issues={solvedIssues}
+            onIssueClick={handleSolvedIssueClick}
+          />
         </div>
 
         {/* Right: Audit Trail */}

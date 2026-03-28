@@ -75,9 +75,28 @@ file:///path/to/process-autopsy-agent/frontend/index.html
 ```
 
 **Dashboard features:**
-- **Audit Trail** (left panel): Complete audit log with agent badges, timestamps, confidence scores
-- **Agent Feed** (right panel): Real-time stream of agent actions with LIVE indicator
-- **Auto-polling**: Updates every 3-5 seconds without page refresh
+- **Workflow Heatmap** (left 60%): 
+  - Responsive grid of all 15 workflows (3 cols desktop, 2 tablet, 1 mobile)
+  - Color-coded status badges (green=on_track, amber=at_risk, red=stalled/breached)
+  - Left border indicator for risk levels
+  - Progress bar showing current step
+  - Click any card to open detailed view
+
+- **Audit Trail** (right top): Complete audit log with agent badges, timestamps, confidence scores
+
+- **Agent Feed** (right bottom): Real-time stream of agent actions with LIVE indicator (green/gray pulsing)
+
+- **Detail Drawer** (slides from right):
+  - Opens on clicking a workflow card
+  - Shows vendor, PO amount, current step details
+  - Recent audit history for that workflow
+  - Smooth animations, click X or outside to close
+
+- **Auto-polling**: 
+  - Audit log every 3 seconds
+  - Workflows every 5 seconds
+  - Autonomous cycle every 30 seconds
+  - UI updates without page refresh
 - **Auto-cycle**: Runs autonomous cycle every 30 seconds
 - Responsive dark-themed UI built with React (CDN) + Tailwind
 

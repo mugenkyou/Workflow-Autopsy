@@ -104,10 +104,226 @@ function initializePolling() {
 }
 
 // ============================================================================
+// Utility Functions
+// ============================================================================
+
+function formatTimeAgo(isoString) {
+    if (!isoString) return 'N/A';
+    try {
+        const date = new Date(isoString);
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return `${seconds}s ago`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    } catch {
+        return 'N/A';
+    }
+}
+
+function formatCurrency(amount) {
+    if (!amount && amount !== 0) return '₹0';
+    const num = parseFloat(amount);
+    return '₹' + num.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+function getStatusColor(status) {
+    if (!status) return 'bg-gray-500';
+    const s = status.toLowerCase();
+    if (s === 'on_track' || s === 'in_progress') return 'bg-green-600';
+    if (s === 'at_risk') return 'bg-amber-500';
+    if (s === 'stalled' || s === 'breached' || s === 'duplicate_hold') return 'bg-red-600';
+    return 'bg-gray-500';
+}
+
+function getStatusTextColor(status) {
+    if (!status) return 'text-gray-300';
+    const s = status.toLowerCase();
+    if (s === 'on_track' || s === 'in_progress') return 'text-green-300';
+    if (s === 'at_risk') return 'text-amber-300';
+    if (s === 'stalled' || s === 'breached' || s === 'duplicate_hold') return 'text-red-300';
+    return 'text-gray-300';
+}
+
+// ============================================================================
 // Components
 // ============================================================================
 
-function AuditTrail() {
+function WorkflowCard({ workflow, onClick }) {
+    const getBorderClass = () => {
+        if (!workflow.status) return '';
+        const s = workflow.status.toLowerCase();
+        if (s === 'breached' || s === 'stalled') return 'border-l-4 border-l-red-600';
+        if (s === 'at_risk') return 'border-l-4 border-l-amber-500';
+        return '';
+    };
+    
+    return (
+        <div
+            onClick={onClick}
+            className={`bg-slate-800 border border-slate-700 rounded-lg p-4 cursor-pointer transition-all hover:translate-y-[-4px] hover:shadow-lg hover:border-slate-600 ${getBorderClass()}`}
+        >
+            {/* Header */}
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-xs text-gray-500">{workflow.id?.substring(0, 8)}...</span>
+                <span className={`text-xs font-bold ${getStatusTextColor(workflow.status)} ${getStatusColor(workflow.status)} px-2 py-1 rounded`}>
+                    {workflow.status || 'unknown'}
+                </span>
+            </div>
+            
+            {/* Content */}
+            <div className="mb-3">
+                <p className="font-semibold text-white truncate">{workflow.name || 'N/A'}</p>
+                <p className="text-xs text-gray-400">{workflow.vendor || 'N/A'}</p>
+                <p className="text-sm font-semibold text-green-300 mt-1">{formatCurrency(workflow.po_amount)}</p>
+            </div>
+            
+            {/* Progress */}
+            <div className="mb-2">
+                <div className="bg-slate-700 rounded h-2 overflow-hidden">
+                    <div
+                        className="bg-blue-500 h-full transition-all"
+                        style={{ width: '60%' }}
+                    />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{workflow.current_step?.step_name || 'N/A'}</p>
+            </div>
+            
+            {/* Time */}
+            <p className="text-xs text-gray-500">{formatTimeAgo(workflow.created_at)}</p>
+        </div>
+    );
+}
+
+function WorkflowHeatmap({ workflows, onSelectWorkflow }) {
+    const [workflowList, setWorkflowList] = useState([]);
+    
+    useEffect(() => {
+        setWorkflowList(workflows);
+    }, [workflows]);
+    
+    return (
+        <div className="h-full overflow-y-auto p-4">
+            <h2 className="text-lg font-bold text-white mb-4">Workflow Heatmap</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-max">
+                {workflowList.length === 0 ? (
+                    <p className="text-gray-500">No workflows loaded</p>
+                ) : (
+                    workflowList.map(wf => (
+                        <WorkflowCard
+                            key={wf.id}
+                            workflow={wf}
+                            onClick={() => onSelectWorkflow(wf)}
+                        />
+                    ))
+                )}
+            </div>
+        </div>
+    );
+}
+
+function DetailDrawer({ workflow, auditLog, isOpen, onClose }) {
+    if (!workflow) return null;
+    
+    const workflowAuditEntries = auditLog
+        .filter(entry => entry.workflow_id === workflow.id)
+        .slice(0, 3);
+    
+    return (
+        <>
+            {/* Overlay */}
+            {isOpen && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
+                    onClick={onClose}
+                />
+            )}
+            
+            {/* Drawer */}
+            <div
+                className={`fixed right-0 top-0 h-full w-96 bg-slate-800 border-l border-slate-700 shadow-2xl transform transition-transform z-50 overflow-y-auto ${
+                    isOpen ? 'translate-x-0' : 'translate-x-full'
+                }`}
+            >
+                <div className="p-6">
+                    {/* Header */}
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-white">{workflow.name}</h2>
+                        <button
+                            onClick={onClose}
+                            className="text-gray-400 hover:text-white transition-colors"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    
+                    {/* Workflow Details */}
+                    <div className="space-y-3 mb-6 pb-6 border-b border-slate-700">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase">Vendor</p>
+                            <p className="text-white font-semibold">{workflow.vendor}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase">PO Amount</p>
+                            <p className="text-green-300 font-semibold">{formatCurrency(workflow.po_amount)}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase">Status</p>
+                            <span className={`inline-block text-xs font-bold ${getStatusTextColor(workflow.status)} ${getStatusColor(workflow.status)} px-3 py-1 rounded mt-1`}>
+                                {workflow.status}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    {/* Current Step */}
+                    {workflow.current_step && (
+                        <div className="mb-6 pb-6 border-b border-slate-700">
+                            <h3 className="text-sm font-semibold text-white mb-3">Current Step</h3>
+                            <div className="bg-slate-700 rounded p-3 space-y-2">
+                                <div>
+                                    <p className="text-xs text-gray-500">Step</p>
+                                    <p className="text-white text-sm font-semibold">{workflow.current_step.step_name}</p>
+                                </div>
+                                <div className="flex justify-between">
+                                    <div>
+                                        <p className="text-xs text-gray-500">Assignee</p>
+                                        <p className="text-white text-sm">{workflow.current_step.assignee || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-500">Status</p>
+                                        <p className={`text-sm font-semibold ${getStatusTextColor(workflow.current_step.status)}`}>
+                                            {workflow.current_step.status}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Audit History */}
+                    {workflowAuditEntries.length > 0 && (
+                        <div>
+                            <h3 className="text-sm font-semibold text-white mb-3">Recent Audit</h3>
+                            <div className="space-y-2">
+                                {workflowAuditEntries.map(entry => (
+                                    <div key={entry.id} className="bg-slate-700 rounded p-2 text-xs">
+                                        <p className="text-gray-400">{formatTimeAgo(entry.timestamp)}</p>
+                                        <p className="text-white font-semibold">{entry.action}</p>
+                                        {entry.reasoning && (
+                                            <p className="text-gray-400 mt-1">{entry.reasoning}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </>
+    );
+}
     const [entries, setEntries] = useState([]);
     
     useEffect(() => {
@@ -250,12 +466,30 @@ function AgentFeed() {
 
 function App() {
     const [mounted, setMounted] = useState(false);
+    const [selectedWorkflow, setSelectedWorkflow] = useState(null);
+    const [workflows, setWorkflows] = useState([]);
+    const [auditLog, setAuditLog] = useState([]);
     
     useEffect(() => {
         // Initialize polling on mount
         initializePolling();
+        
+        // Subscribe to updates
+        subscribeToUpdates(() => {
+            setWorkflows(getWorkflows());
+            setAuditLog(getAuditLog());
+        });
+        
+        // Initial data load
+        setWorkflows(getWorkflows());
+        setAuditLog(getAuditLog());
+        
         setMounted(true);
     }, []);
+    
+    const handleDrawerClose = () => {
+        setSelectedWorkflow(null);
+    };
     
     if (!mounted) return <div className="text-center py-8">Loading...</div>;
     
@@ -269,19 +503,40 @@ function App() {
             
             {/* Main Content */}
             <div className="flex flex-1 overflow-hidden">
-                {/* Audit Trail (70%) */}
-                <div className="flex-1 border-r border-slate-700 overflow-hidden">
-                    <div className="px-4 py-2 bg-slate-800 border-b border-slate-700">
-                        <h2 className="text-sm font-semibold text-white">Audit Trail</h2>
-                    </div>
-                    <AuditTrail />
+                {/* Workflow Heatmap (60%) */}
+                <div className="w-3/5 border-r border-slate-700 overflow-hidden bg-slate-900">
+                    <WorkflowHeatmap
+                        workflows={workflows}
+                        onSelectWorkflow={setSelectedWorkflow}
+                    />
                 </div>
                 
-                {/* Agent Feed (30%) */}
-                <div className="w-1/3 overflow-hidden">
-                    <AgentFeed />
+                {/* Right Panel (40%): AuditTrail + AgentFeed stacked */}
+                <div className="w-2/5 flex flex-col overflow-hidden">
+                    {/* Audit Trail */}
+                    <div className="flex-1 border-b border-slate-700 overflow-hidden flex flex-col">
+                        <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex-shrink-0">
+                            <h2 className="text-sm font-semibold text-white">Audit Trail</h2>
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            <AuditTrail />
+                        </div>
+                    </div>
+                    
+                    {/* Agent Feed */}
+                    <div className="flex-1 overflow-hidden flex flex-col">
+                        <AgentFeed />
+                    </div>
                 </div>
             </div>
+            
+            {/* Detail Drawer */}
+            <DetailDrawer
+                workflow={selectedWorkflow}
+                auditLog={auditLog}
+                isOpen={!!selectedWorkflow}
+                onClose={handleDrawerClose}
+            />
         </div>
     );
 }

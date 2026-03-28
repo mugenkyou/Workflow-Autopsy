@@ -58,6 +58,26 @@
   cursor: not-allowed;
 }
 
+.stop-agent-btn {
+  padding: 0.75rem 1.5rem;
+  background: #6b7280;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.95rem;
+}
+
+.stop-agent-btn:hover {
+  background: #4b5563;
+}
+
+.stop-agent-btn:active {
+  transform: scale(0.98);
+}
+
 .main-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.8fr) minmax(320px, 0.9fr);

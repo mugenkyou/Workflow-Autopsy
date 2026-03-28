@@ -6,6 +6,7 @@ import {
   fetchEscalations,
   fetchStallPatterns,
   injectChaos,
+  stopAgent,
   markEscalationResolved,
   runCycle,
 } from "./api/client";
@@ -88,7 +89,7 @@ export default function App() {
       }
     };
     pollAudit();
-    const interval = setInterval(pollAudit, 3000);
+    const interval = setInterval(pollAudit, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -235,7 +236,7 @@ export default function App() {
       }
     };
     pollPatterns();
-    const interval = setInterval(pollPatterns, 10000);
+    const interval = setInterval(pollPatterns, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -267,6 +268,15 @@ export default function App() {
       addToast(`✗ ${err.message}`, "error");
     }
     setLoading(false);
+  };
+
+  const handleStopAgent = async () => {
+    try {
+      await stopAgent();
+      addToast("Agent stopped", "info");
+    } catch (err) {
+      addToast(`Error: ${err.message}`, "error");
+    }
   };
 
   const addToast = (message, type = "info") => {
@@ -364,6 +374,9 @@ export default function App() {
             disabled={loading || resolutionLocked}
           >
             {resolutionLocked ? "Resolving..." : "⚡ Break It"}
+          </button>
+          <button className="stop-agent-btn" onClick={handleStopAgent}>
+            ◼ Stop Agent
           </button>
         </div>
       </div>

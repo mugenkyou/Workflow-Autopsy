@@ -65,6 +65,31 @@ class DiagnosisAgent:
             f"sample_count={row['sample_count']}, last_seen={row['last_seen']}"
         )
 
+    def _check_cached_diagnosis(self, workflow_id: str, step_id: str) -> dict[str, Any] | None:
+        """Check if diagnosis already exists for this workflow/step."""
+        conn = get_connection()
+        cur = conn.cursor()
+        row = cur.execute(
+            "SELECT action, reasoning, confidence FROM audit_log "
+            "WHERE workflow_id = ? AND step_id = ? AND action LIKE 'diagnosis%' "
+            "ORDER BY timestamp DESC LIMIT 1",
+            (workflow_id, step_id),
+        ).fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        try:
+            action_data = json.loads(row["action"])
+            return {
+                "stall_type": action_data.get("stall_type", "missing_data"),
+                "confidence": float(row["confidence"] or 0.6),
+                "reasoning": row["reasoning"] or "Cached from previous analysis",
+            }
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return None
+
     def _build_prompt(self, issue_details: dict[str, Any], pattern_summary: str, strict_mode: bool = False) -> str:
         """Build grounded prompt with strong deterministic rules and diversity enforcement."""
         step_name = issue_details.get('step_name', '')
@@ -196,9 +221,18 @@ class DiagnosisAgent:
         }
 
     def run(self, issue: dict[str, Any]) -> dict[str, Any]:
+        workflow_id = str(issue.get("workflow_id", ""))
+        step_id = str(issue.get("step_id", ""))
+
+        # Check for cached diagnosis first
+        cached = self._check_cached_diagnosis(workflow_id, step_id)
+        if cached:
+            print(f"DEBUG: Using cached diagnosis for {workflow_id}/{step_id}", file=__import__('sys').stderr)
+            return cached
+
         pattern_summary = self._load_pattern_summary(str(issue.get("assignee", "")))
 
-        max_retries = 2
+        max_retries = 1
         for attempt in range(max_retries + 1):
             strict_mode = attempt > 0
             prompt = self._build_prompt(issue, pattern_summary, strict_mode=strict_mode)
@@ -207,7 +241,7 @@ class DiagnosisAgent:
                 resp = requests.post(
                     self.endpoint,
                     json={"model": self.model, "prompt": prompt, "stream": False},
-                    timeout=30,
+                    timeout=20,
                 )
                 resp.raise_for_status()
                 data = resp.json()

@@ -643,3 +643,17 @@ def get_stall_patterns():
             success=False,
             patterns=[],
         )
+
+
+class SimpleResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@app.post("/stop-agent", response_model=SimpleResponse)
+def stop_agent():
+    """Stop agent processing. (Demo mode: returns success)"""
+    return SimpleResponse(
+        success=True,
+        message="Agent processing stopped",
+    )

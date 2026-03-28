@@ -1,13 +1,13 @@
 import "./SolvedIssueDetails.css";
 
-const ACTION_DETAILS = {
-  reroute_approver: "Approver was rerouted to remove the bottleneck.",
-  escalate_sla: "Issue was escalated for SLA intervention.",
-  monitor_only: "Delay was acknowledged and tracked for monitoring.",
-  flag_duplicate: "Workflow was flagged as duplicate for safe handling.",
-  request_data: "Additional data was requested to proceed.",
-  auto_reject: "Step was rejected due to amount variance.",
-  action_error: "Action failed and was logged for follow-up.",
+const SYSTEM_IMPACT = {
+  reroute_approver: "Re-routed approval to the correct approver.",
+  escalate_sla: "Escalated to manual review for urgent handling.",
+  monitor_only: "Kept the case under active monitoring.",
+  flag_duplicate: "Flagged a potential duplicate to avoid duplicate payment.",
+  request_data: "Requested documents to unblock processing.",
+  auto_reject: "Stopped the request to prevent a mismatch payout.",
+  action_error: "Recorded an exception and flagged it for follow-up.",
 };
 
 function formatTime(ts) {
@@ -20,6 +20,58 @@ function formatTime(ts) {
 function formatType(value) {
   if (!value) return "Unknown";
   return String(value).replace(/_/g, " ");
+}
+
+function improveReasoningText(text) {
+  const raw = (text || "").trim();
+  if (!raw) return "Reasoning unavailable";
+
+  return raw
+    .replace(/\bsuggests\b/gi, "shows")
+    .replace(/\blikely\b/gi, "")
+    .replace(/\bindicates\b/gi, "shows")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function mapOutcome(stepStatus, workflowStatus) {
+  const s = String(stepStatus || "").toLowerCase();
+  const w = String(workflowStatus || "").toLowerCase();
+
+  if (s === "pending_data") {
+    return "Waiting for required data from assignee.";
+  }
+  if (s === "escalated" || w === "escalated") {
+    return "Escalated for manual review.";
+  }
+  if (s === "completed") {
+    return "Issue resolved and workflow continued.";
+  }
+  if (s === "in_progress") {
+    return "Issue resolved and workflow is moving forward.";
+  }
+  if (s === "rejected") {
+    return "Request closed after validation checks.";
+  }
+  if (w === "duplicate_hold") {
+    return "Held for duplicate verification before continuing.";
+  }
+
+  return "Intervention completed. Latest workflow update is available.";
+}
+
+function getStatusBadge(stepStatus, workflowStatus) {
+  const s = String(stepStatus || "").toLowerCase();
+  const w = String(workflowStatus || "").toLowerCase();
+
+  if (s === "escalated" || w === "escalated") {
+    return { label: "Escalated", tone: "escalated" };
+  }
+  if (s === "pending_data") {
+    return { label: "Waiting on user", tone: "waiting" };
+  }
+
+  return { label: "Auto-fixed", tone: "autofixed" };
 }
 
 export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onClose }) {
@@ -39,9 +91,11 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
     ) || null;
 
   const diagnosisReasoning =
-    relatedAuditEntry?.reasoning?.trim() || "Reasoning unavailable";
+    improveReasoningText(relatedAuditEntry?.reasoning);
   const actionTaken = relatedAuditEntry?.action || "unavailable";
-  const actionDetails = ACTION_DETAILS[actionTaken] || "Action details unavailable";
+  const impactDetails =
+    SYSTEM_IMPACT[actionTaken] ||
+    "Applied a corrective action to keep the workflow moving.";
   const confidencePercent =
     typeof relatedAuditEntry?.confidence === "number"
       ? `${Math.round(relatedAuditEntry.confidence * 100)}% confidence`
@@ -49,6 +103,8 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
 
   const finalStepStatus = workflow?.current_step?.status || "Unavailable";
   const finalWorkflowStatus = workflow?.status || "Unavailable";
+  const outcomeText = mapOutcome(finalStepStatus, finalWorkflowStatus);
+  const statusBadge = getStatusBadge(finalStepStatus, finalWorkflowStatus);
 
   return (
     <div className="solved-details-overlay" onClick={onClose}>
@@ -57,7 +113,12 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
         onClick={(e) => e.stopPropagation()}
       >
         <div className="solved-details-header">
-          <h2>Resolved Issue</h2>
+          <div>
+            <h2>System Intervention</h2>
+            <span className={`intervention-status ${statusBadge.tone}`}>
+              {statusBadge.label}
+            </span>
+          </div>
           <button className="solved-details-close" onClick={onClose}>
             ✕
           </button>
@@ -118,10 +179,10 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
             <label>Diagnosis</label>
             <div className="summary-box">
               <p>
-                <strong>Type:</strong> {formatType(issue.failure_type)}
+                <strong>Issue Type:</strong> {formatType(issue.failure_type)}
               </p>
               <p>
-                <strong>Reasoning:</strong> {diagnosisReasoning}
+                <strong>Cause:</strong> {diagnosisReasoning}
               </p>
               {confidencePercent && (
                 <p>
@@ -133,7 +194,7 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
 
           {/* Action */}
           <div className="detail-section">
-            <label>Action</label>
+            <label>System Impact</label>
             <div
               className="resolution-box"
               style={{
@@ -142,26 +203,30 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
               }}
             >
               <p>
-                <strong>Action Taken:</strong> {actionTaken}
+                <strong>Intervention:</strong> {impactDetails}
               </p>
               <p>
-                <strong>Details:</strong> {actionDetails}
+                <strong>Action Tag:</strong> {actionTaken}
               </p>
             </div>
           </div>
 
           {/* Result */}
           <div className="detail-section">
-            <label>Result</label>
+            <label>Outcome</label>
             <div className="summary-box">
               <p>
-                <strong>Final Step Status:</strong> {finalStepStatus}
+                {outcomeText}
               </p>
               <p>
-                <strong>Workflow Status:</strong> {finalWorkflowStatus}
+                <strong>Step Status:</strong> {formatType(finalStepStatus)}
               </p>
               <p>
-                <strong>Audit Timestamp:</strong> {formatTime(relatedAuditEntry?.timestamp || issue.resolvedAt)}
+                <strong>Workflow Status:</strong> {formatType(finalWorkflowStatus)}
+              </p>
+              <p>
+                <strong>Updated:</strong>{" "}
+                {formatTime(relatedAuditEntry?.timestamp || issue.resolvedAt)}
               </p>
             </div>
           </div>

@@ -11,7 +11,10 @@ export default function SolvedIssueDetails({ issue, onClose }) {
 
   return (
     <div className="solved-details-overlay" onClick={onClose}>
-      <div className="solved-details-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="solved-details-panel"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="solved-details-header">
           <h2>Resolved Issue</h2>
           <button className="solved-details-close" onClick={onClose}>
@@ -26,7 +29,8 @@ export default function SolvedIssueDetails({ issue, onClose }) {
             <div
               className="detail-badge"
               style={{
-                backgroundColor: failureTypeColor[issue.failure_type] || "#6b7280",
+                backgroundColor:
+                  failureTypeColor[issue.failure_type] || "#6b7280",
               }}
             >
               {issue.failure_type?.toUpperCase() || "ISSUE"}
@@ -49,7 +53,12 @@ export default function SolvedIssueDetails({ issue, onClose }) {
           {issue.risk_score && (
             <div className="detail-section">
               <label>Risk Score</label>
-              <p>₹ {(issue.risk_score || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</p>
+              <p>
+                ₹{" "}
+                {(issue.risk_score || 0).toLocaleString("en-IN", {
+                  maximumFractionDigits: 0,
+                })}
+              </p>
             </div>
           )}
 
@@ -57,7 +66,9 @@ export default function SolvedIssueDetails({ issue, onClose }) {
           <div className="detail-section">
             <label>Resolved At</label>
             <p>
-              {issue.resolvedAt ? new Date(issue.resolvedAt).toLocaleString() : "—"}
+              {issue.resolvedAt
+                ? new Date(issue.resolvedAt).toLocaleString()
+                : "—"}
             </p>
           </div>
 
@@ -68,8 +79,8 @@ export default function SolvedIssueDetails({ issue, onClose }) {
               <p>
                 This <strong>{issue.failure_type}</strong> issue in{" "}
                 <strong>{issue.workflow_id}</strong> (step:{" "}
-                <strong>{issue.step_name}</strong>) was detected and automatically resolved by
-                the agent system.
+                <strong>{issue.step_name}</strong>) was detected and
+                automatically resolved by the agent system.
               </p>
             </div>
           </div>
@@ -77,7 +88,13 @@ export default function SolvedIssueDetails({ issue, onClose }) {
           {/* Resolution Note */}
           <div className="detail-section">
             <label>Resolution</label>
-            <div className="resolution-box" style={{borderLeftColor: failureTypeColor[issue.failure_type] || "#6b7280"}}>
+            <div
+              className="resolution-box"
+              style={{
+                borderLeftColor:
+                  failureTypeColor[issue.failure_type] || "#6b7280",
+              }}
+            >
               ✓ Issue automatically resolved and workflow continued
             </div>
           </div>

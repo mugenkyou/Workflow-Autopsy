@@ -27,9 +27,11 @@ export default function IssueDetails({
   if (!issue) return null;
 
   const actionTaken = auditEntry?.action || "pending";
-  const actionDetails = ACTION_DETAILS[actionTaken] || "Action details not captured in audit log.";
+  const actionDetails =
+    ACTION_DETAILS[actionTaken] || "Action details not captured in audit log.";
   const diagnosisType = issue.failure_type || "unknown";
-  const diagnosisReasoning = auditEntry?.reasoning || "Diagnosis reasoning not available yet.";
+  const diagnosisReasoning =
+    auditEntry?.reasoning || "Diagnosis reasoning not available yet.";
   const confidence =
     typeof auditEntry?.confidence === "number"
       ? `${(auditEntry.confidence * 100).toFixed(0)}%`
@@ -65,7 +67,11 @@ export default function IssueDetails({
           <h3>Issue Details</h3>
           <p>AI diagnosis and action trace</p>
         </div>
-        <button className="issue-details-close" onClick={onClose} aria-label="Close issue details">
+        <button
+          className="issue-details-close"
+          onClick={onClose}
+          aria-label="Close issue details"
+        >
           ×
         </button>
       </div>

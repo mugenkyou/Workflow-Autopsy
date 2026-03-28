@@ -33,8 +33,12 @@ export default function SolvedIssues({ issues, onIssueClick }) {
               }}
             >
               <div className="solved-top">
-                <span className="solved-type">{issue.failure_type?.toUpperCase() || "ISSUE"}</span>
-                <span className="solved-time">{formatTime(issue.resolvedAt)}</span>
+                <span className="solved-type">
+                  {issue.failure_type?.toUpperCase() || "ISSUE"}
+                </span>
+                <span className="solved-time">
+                  {formatTime(issue.resolvedAt)}
+                </span>
               </div>
               <div className="solved-body">
                 <p>{issue.step_name}</p>

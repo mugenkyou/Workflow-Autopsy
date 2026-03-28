@@ -9,6 +9,7 @@ A multi-agent system for detecting, diagnosing, and automatically resolving stal
 ## System Architecture
 
 Detailed diagrams:
+
 - [docs/system-architecture.md](docs/system-architecture.md)
 - [docs/component-diagram.mmd](docs/component-diagram.mmd)
 - [docs/workflow-sequence.mmd](docs/workflow-sequence.mmd)

@@ -31,7 +31,8 @@ def init_db() -> None:
             vendor TEXT NOT NULL,
             po_amount REAL NOT NULL,
             status TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            injected_run_id TEXT
         )
     """)
 
@@ -44,9 +45,25 @@ def init_db() -> None:
             sla_hours INTEGER,
             started_at TEXT,
             completed_at TEXT,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            injected_run_id TEXT
         )
     """)
+
+    # Backward-compatible migrations for existing local DBs.
+    workflow_cols = {
+        row["name"]
+        for row in cursor.execute("PRAGMA table_info(workflows)").fetchall()
+    }
+    if "injected_run_id" not in workflow_cols:
+        cursor.execute("ALTER TABLE workflows ADD COLUMN injected_run_id TEXT")
+
+    step_cols = {
+        row["name"]
+        for row in cursor.execute("PRAGMA table_info(steps)").fetchall()
+    }
+    if "injected_run_id" not in step_cols:
+        cursor.execute("ALTER TABLE steps ADD COLUMN injected_run_id TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (

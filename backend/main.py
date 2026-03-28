@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import List, Optional
 import random
+import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,11 @@ from pydantic import BaseModel
 from db import get_connection, init_db, seed_data, repair_data
 from graph import run_cycle
 from agents.monitor import MonitorAgent
+
+
+# Latest Break It run context for demo isolation
+LATEST_INJECTED_RUN_ID: Optional[str] = None
+LATEST_INJECTED_WORKFLOW_IDS: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +67,7 @@ class ActiveIssue(BaseModel):
     failure_type: str
     hours_overdue: float
     risk_score: float
+    injected_run_id: Optional[str] = None
 
 
 class ActiveIssuesResponse(BaseModel):
@@ -91,11 +98,14 @@ class InjectChaosResponse(BaseModel):
     message: str
     failures_injected: List[str]
     audit_entries: List[AuditLogEntry]
+    run_id: Optional[str] = None
+    workflow_ids: Optional[List[str]] = None
 
 
 class InjectFailureRequest(BaseModel):
     workflow_id: str
     failure_type: str  # "stall" | "duplicate" | "sla_breach"
+    injected_run_id: Optional[str] = None
 
 
 class InjectFailureResponse(BaseModel):
@@ -108,6 +118,43 @@ class RunCycleResponse(BaseModel):
     issues_processed: int
     audit_entries: List[AuditLogEntry]
     message: Optional[str]
+
+
+def _reset_demo_state(clear_audit_log: bool = True) -> None:
+    """Reset workflow/step failure states before a new Break It run."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = datetime.utcnow().isoformat()
+
+    # Reset workflow-level statuses and clear prior run tags.
+    cursor.execute("UPDATE workflows SET status = 'on_track', injected_run_id = NULL")
+
+    # Clear any stale run tags from steps before we rebuild a fresh baseline.
+    cursor.execute("UPDATE steps SET injected_run_id = NULL")
+
+    # Clean temporary failure states before repair_data normalizes active steps.
+    cursor.execute(
+        "UPDATE steps SET status = 'completed', completed_at = COALESCE(completed_at, ?) "
+        "WHERE status IN ('stalled', 'breached')",
+        (now_iso,),
+    )
+
+    # Resolve any open escalations from previous runs.
+    cursor.execute(
+        "UPDATE escalations SET resolved_at = ? WHERE resolved_at IS NULL",
+        (now_iso,),
+    )
+
+    # Optional cleanup for demo clarity.
+    if clear_audit_log:
+        cursor.execute("DELETE FROM audit_log")
+
+    conn.commit()
+    conn.close()
+
+    # Rebuild valid baseline step state (exactly one active step per workflow,
+    # no stale stalled/breached/duplicate leftovers).
+    repair_data()
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +332,13 @@ def inject_failure(payload: InjectFailureRequest):
         sla_hours = int(step["sla_hours"] or 12)
         overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
         cursor.execute(
-            "UPDATE steps SET status = 'stalled', started_at = ?, completed_at = NULL WHERE id = ?",
-            (overdue_start, step["id"]),
+            "UPDATE steps SET status = 'stalled', started_at = ?, completed_at = NULL, injected_run_id = ? WHERE id = ?",
+            (overdue_start, payload.injected_run_id, step["id"]),
         )
-        cursor.execute("UPDATE workflows SET status = 'stalled' WHERE id = ?", (payload.workflow_id,))
+        cursor.execute(
+            "UPDATE workflows SET status = 'stalled', injected_run_id = ? WHERE id = ?",
+            (payload.injected_run_id, payload.workflow_id),
+        )
         message = "Step forced overdue and status set to 'stalled'"
 
     elif payload.failure_type == "duplicate":
@@ -303,10 +353,13 @@ def inject_failure(payload: InjectFailureRequest):
             sla_hours = int(step["sla_hours"] or 12)
             overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
             cursor.execute(
-                "UPDATE steps SET started_at = ?, completed_at = NULL, status = 'in_progress' WHERE id = ?",
-                (overdue_start, step["id"]),
+                "UPDATE steps SET started_at = ?, completed_at = NULL, status = 'in_progress', injected_run_id = ? WHERE id = ?",
+                (overdue_start, payload.injected_run_id, step["id"]),
             )
-        cursor.execute("UPDATE workflows SET status = 'duplicate_hold' WHERE id = ?", (payload.workflow_id,))
+        cursor.execute(
+            "UPDATE workflows SET status = 'duplicate_hold', injected_run_id = ? WHERE id = ?",
+            (payload.injected_run_id, payload.workflow_id),
+        )
         message = "Workflow status set to 'duplicate_hold' and active step forced overdue"
 
     elif payload.failure_type == "sla_breach":
@@ -324,10 +377,13 @@ def inject_failure(payload: InjectFailureRequest):
         sla_hours = int(step["sla_hours"] or 12)
         overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
         cursor.execute(
-            "UPDATE steps SET status = 'breached', started_at = ?, completed_at = NULL WHERE id = ?",
-            (overdue_start, step["id"]),
+            "UPDATE steps SET status = 'breached', started_at = ?, completed_at = NULL, injected_run_id = ? WHERE id = ?",
+            (overdue_start, payload.injected_run_id, step["id"]),
         )
-        cursor.execute("UPDATE workflows SET status = 'breached' WHERE id = ?", (payload.workflow_id,))
+        cursor.execute(
+            "UPDATE workflows SET status = 'breached', injected_run_id = ? WHERE id = ?",
+            (payload.injected_run_id, payload.workflow_id),
+        )
         message = "Step forced overdue and status set to 'breached'"
 
     conn.commit()
@@ -381,11 +437,42 @@ def run_autonomous_cycle():
 def get_active_issues():
     """Get all active issues ranked by risk score (highest first)."""
     try:
+        # No Break It run yet means no demo issues should be shown.
+        if not LATEST_INJECTED_RUN_ID:
+            return ActiveIssuesResponse(
+                success=True,
+                issues=[],
+                total_risk_exposure=0.0,
+            )
+
         monitor = MonitorAgent()
         issues = monitor.run()
-        
+
         # Sort by risk_score descending
         sorted_issues = sorted(issues, key=lambda x: x.get("risk_score", 0), reverse=True)
+
+        # Build a DB-backed run_id map so issue scoping is stable and explicit.
+        conn = get_connection()
+        cursor = conn.cursor()
+        tagged_rows = cursor.execute(
+            "SELECT id, injected_run_id FROM workflows "
+            "WHERE injected_run_id IS NOT NULL"
+        ).fetchall()
+        conn.close()
+
+        workflow_run_map = {
+            row["id"]: row["injected_run_id"]
+            for row in tagged_rows
+        }
+
+        # Only return issues from the latest injected run_id.
+        filtered_issues = []
+        for issue in sorted_issues:
+            workflow_id = issue.get("workflow_id")
+            issue_run_id = workflow_run_map.get(workflow_id)
+            if issue_run_id == LATEST_INJECTED_RUN_ID:
+                issue["injected_run_id"] = issue_run_id
+                filtered_issues.append(issue)
         
         # Convert to ActiveIssue models
         issue_models = [
@@ -397,8 +484,9 @@ def get_active_issues():
                 failure_type=issue["failure_type"],
                 hours_overdue=issue["hours_overdue"],
                 risk_score=issue["risk_score"],
+                injected_run_id=issue.get("injected_run_id"),
             )
-            for issue in sorted_issues
+            for issue in filtered_issues
         ]
         
         # Calculate total risk exposure (sum of all risk scores)
@@ -423,6 +511,11 @@ def get_active_issues():
 def inject_chaos():
     """Inject 3 random failures (stall, duplicate, sla_breach) without running cycle."""
     try:
+        global LATEST_INJECTED_RUN_ID, LATEST_INJECTED_WORKFLOW_IDS
+
+        # Fresh demo run: clear previous temporary failure state.
+        _reset_demo_state(clear_audit_log=True)
+
         conn = get_connection()
         cursor = conn.cursor()
         
@@ -433,29 +526,51 @@ def inject_chaos():
         if len(all_workflows) < 3:
             raise HTTPException(status_code=400, detail="Not enough workflows to inject 3 failures")
         
-        # Pick 3 random workflows
-        selected = random.sample(all_workflows, 3)
+        # Pick 3 random workflows using system entropy so each run is fresh.
+        selected = random.SystemRandom().sample(all_workflows, 3)
         workflow_1 = selected[0]["id"]
         workflow_2 = selected[1]["id"]
         workflow_3 = selected[2]["id"]
+
+        run_id = str(uuid.uuid4())
+        LATEST_INJECTED_RUN_ID = run_id
+        LATEST_INJECTED_WORKFLOW_IDS = {workflow_1, workflow_2, workflow_3}
         
         # Inject the failures
         failures_injected = []
         
         try:
-            inject_failure(InjectFailureRequest(workflow_id=workflow_1, failure_type="stall"))
+            inject_failure(
+                InjectFailureRequest(
+                    workflow_id=workflow_1,
+                    failure_type="stall",
+                    injected_run_id=run_id,
+                )
+            )
             failures_injected.append(f"stall → {workflow_1}")
         except Exception as e:
             print(f"Failed to inject stall: {e}")
         
         try:
-            inject_failure(InjectFailureRequest(workflow_id=workflow_2, failure_type="duplicate"))
+            inject_failure(
+                InjectFailureRequest(
+                    workflow_id=workflow_2,
+                    failure_type="duplicate",
+                    injected_run_id=run_id,
+                )
+            )
             failures_injected.append(f"duplicate → {workflow_2}")
         except Exception as e:
             print(f"Failed to inject duplicate: {e}")
         
         try:
-            inject_failure(InjectFailureRequest(workflow_id=workflow_3, failure_type="sla_breach"))
+            inject_failure(
+                InjectFailureRequest(
+                    workflow_id=workflow_3,
+                    failure_type="sla_breach",
+                    injected_run_id=run_id,
+                )
+            )
             failures_injected.append(f"sla_breach → {workflow_3}")
         except Exception as e:
             print(f"Failed to inject sla_breach: {e}")
@@ -468,6 +583,8 @@ def inject_chaos():
             message=f"Chaos injected: {len(failures_injected)} failures (will resolve on next cycle ~30s)",
             failures_injected=failures_injected,
             audit_entries=[],
+            run_id=run_id,
+            workflow_ids=[workflow_1, workflow_2, workflow_3],
         )
     
     except Exception as e:
@@ -476,6 +593,8 @@ def inject_chaos():
             message=f"Chaos injection failed: {str(e)}",
             failures_injected=[],
             audit_entries=[],
+            run_id=None,
+            workflow_ids=[],
         )
 
 
@@ -653,6 +772,13 @@ class SimpleResponse(BaseModel):
 @app.post("/stop-agent", response_model=SimpleResponse)
 def stop_agent():
     """Stop agent processing. (Demo mode: returns success)"""
+    global LATEST_INJECTED_RUN_ID, LATEST_INJECTED_WORKFLOW_IDS
+    LATEST_INJECTED_RUN_ID = None
+    LATEST_INJECTED_WORKFLOW_IDS = set()
+
+    # Stop also resets demo state so the next Break It starts clean.
+    _reset_demo_state(clear_audit_log=True)
+
     return SimpleResponse(
         success=True,
         message="Agent processing stopped",

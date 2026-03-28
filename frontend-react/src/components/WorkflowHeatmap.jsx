@@ -1,8 +1,15 @@
 import { useState } from "react";
 import "./WorkflowHeatmap.css";
 
-export default function WorkflowHeatmap({ workflows, activeIssues }) {
+export default function WorkflowHeatmap({
+  workflows,
+  activeIssues,
+  highlightedWorkflowIds = [],
+  forceGreenForNonHighlighted = false,
+}) {
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
+
+  const highlightedSet = new Set(highlightedWorkflowIds);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -27,6 +34,13 @@ export default function WorkflowHeatmap({ workflows, activeIssues }) {
     return activeIssues.some((issue) => issue.workflow_id === workflowId);
   };
 
+  const getDisplayStatus = (workflow) => {
+    if (!forceGreenForNonHighlighted) {
+      return workflow.status;
+    }
+    return highlightedSet.has(workflow.id) ? workflow.status : "on_track";
+  };
+
   return (
     <div className="heatmap-container">
       <h2>Workflow Heatmap</h2>
@@ -38,15 +52,19 @@ export default function WorkflowHeatmap({ workflows, activeIssues }) {
             <div
               key={workflow.id}
               className={`workflow-card ${hasActiveIssue(workflow.id) ? "has-issue" : ""}`}
-              style={{ borderLeftColor: getStatusColor(workflow.status) }}
+              style={{
+                borderLeftColor: getStatusColor(getDisplayStatus(workflow)),
+              }}
               onClick={() => setSelectedWorkflow(workflow)}
             >
               <div className="card-header">
                 <span
                   className="status-badge"
-                  style={{ background: getStatusColor(workflow.status) }}
+                  style={{
+                    background: getStatusColor(getDisplayStatus(workflow)),
+                  }}
                 >
-                  {workflow.status}
+                  {getDisplayStatus(workflow)}
                 </span>
               </div>
               <div className="card-body">

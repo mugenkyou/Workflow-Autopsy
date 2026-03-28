@@ -38,6 +38,9 @@ export default function App() {
   const [selectedEscalation, setSelectedEscalation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [resolutionLocked, setResolutionLocked] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState(null);
+  const [currentRunWorkflowIds, setCurrentRunWorkflowIds] = useState([]);
+  const [heatmapRevision, setHeatmapRevision] = useState(0);
   const [toasts, setToasts] = useState([]);
   const [apiErrors, setApiErrors] = useState({});
   const shownEscalationIdsRef = useRef(new Set());
@@ -45,6 +48,17 @@ export default function App() {
   const activeIssueMapRef = useRef(new Map());
   const resolutionLockedRef = useRef(false);
   const seenInjectedIssuesRef = useRef(false);
+
+  const parseInjectedWorkflowIds = (failuresInjected) => {
+    if (!Array.isArray(failuresInjected)) return [];
+    return failuresInjected
+      .map((entry) => {
+        const text = String(entry || "");
+        const parts = text.split(/→|->/);
+        return (parts[parts.length - 1] || "").trim();
+      })
+      .filter(Boolean);
+  };
 
   // Log API base URL on mount
   useEffect(() => {
@@ -102,8 +116,13 @@ export default function App() {
         console.log("Active issues response:", res.data);
 
         const incomingIssues = res.data?.issues || [];
+        const scopedIncomingIssues = currentRunId
+          ? incomingIssues.filter(
+              (issue) => issue.injected_run_id === currentRunId,
+            )
+          : [];
         const incomingMap = new Map(
-          incomingIssues.map((issue) => [
+          scopedIncomingIssues.map((issue) => [
             `${issue.workflow_id}|${issue.step_id}`,
             issue,
           ]),
@@ -125,17 +144,22 @@ export default function App() {
         }
 
         activeIssueMapRef.current = incomingMap;
-        setActiveIssues(incomingIssues);
+        setActiveIssues(scopedIncomingIssues);
 
         if (resolutionLockedRef.current) {
-          if (incomingIssues.length > 0) {
+          if (scopedIncomingIssues.length > 0) {
             seenInjectedIssuesRef.current = true;
           }
 
-          if (seenInjectedIssuesRef.current && incomingIssues.length === 0) {
+          if (
+            seenInjectedIssuesRef.current &&
+            scopedIncomingIssues.length === 0
+          ) {
             resolutionLockedRef.current = false;
             setResolutionLocked(false);
             seenInjectedIssuesRef.current = false;
+            setCurrentRunId(null);
+            setCurrentRunWorkflowIds([]);
             addToast("Agents resolved all injected issues", "success");
           }
         }
@@ -149,7 +173,7 @@ export default function App() {
     pollIssues();
     const interval = setInterval(pollIssues, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentRunId]);
 
   // Show next queued escalation when no modal is open.
   useEffect(() => {
@@ -262,14 +286,24 @@ export default function App() {
     }
 
     setSolvedIssues([]);
+    setActiveIssues([]);
     activeIssueMapRef.current = new Map();
     seenInjectedIssuesRef.current = false;
+    setCurrentRunId(null);
+    setCurrentRunWorkflowIds([]);
+    setHeatmapRevision((prev) => prev + 1);
 
     setLoading(true);
     try {
       const res = await injectChaos();
+      const runId = res.data?.run_id || null;
+      const workflowIds = Array.isArray(res.data?.workflow_ids)
+        ? res.data.workflow_ids
+        : parseInjectedWorkflowIds(res.data?.failures_injected);
       resolutionLockedRef.current = true;
       setResolutionLocked(true);
+      setCurrentRunId(runId);
+      setCurrentRunWorkflowIds(workflowIds);
       addToast(`✓ ${res.data.message}`, "success");
     } catch (err) {
       addToast(`✗ ${err.message}`, "error");
@@ -287,6 +321,9 @@ export default function App() {
       setSolvedIssues([]);
       activeIssueMapRef.current = new Map();
       seenInjectedIssuesRef.current = false;
+      setCurrentRunId(null);
+      setCurrentRunWorkflowIds([]);
+      setHeatmapRevision((prev) => prev + 1);
       addToast("Agent stopped. Break It is ready again.", "success");
     } catch (err) {
       addToast(`Error: ${err.message}`, "error");
@@ -373,6 +410,10 @@ export default function App() {
       )
     : false;
 
+  const highlightedWorkflowIds = [
+    ...new Set(activeIssues.map((issue) => issue.workflow_id)),
+  ];
+
   return (
     <div className="app">
       {/* Header */}
@@ -428,7 +469,13 @@ export default function App() {
       <div className="main-layout">
         {/* Left: Heatmap */}
         <div className="left-panel">
-          <WorkflowHeatmap workflows={workflows} activeIssues={activeIssues} />
+          <WorkflowHeatmap
+            key={`heatmap-${heatmapRevision}-${currentRunId || "none"}`}
+            workflows={workflows}
+            activeIssues={activeIssues}
+            highlightedWorkflowIds={highlightedWorkflowIds}
+            forceGreenForNonHighlighted={currentRunWorkflowIds.length > 0}
+          />
         </div>
 
         {/* Middle: Active + Solved Issues */}

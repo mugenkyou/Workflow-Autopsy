@@ -1,0 +1,109 @@
+.stall-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.insights-header h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.1rem;
+  color: #f3f4f6;
+}
+
+.subtitle {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.patterns-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pattern-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #1a1f3a;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+}
+
+.pattern-info {
+  flex: 1;
+}
+
+.approver-name {
+  font-weight: 600;
+  color: #d1d5db;
+  font-size: 0.95rem;
+}
+
+.condition {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.sample-count {
+  color: #6b7280;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.pattern-metric {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 150px;
+}
+
+.bar-container {
+  flex: 1;
+  height: 6px;
+  background: #0f1535;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.rate-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  min-width: 40px;
+  text-align: right;
+}
+
+.empty-patterns {
+  text-align: center;
+  color: #6b7280;
+  padding: 1rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 1024px) {
+  .pattern-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pattern-metric {
+    width: 100%;
+  }
+
+  .bar-container {
+    flex: 1;
+    width: 100%;
+  }
+}

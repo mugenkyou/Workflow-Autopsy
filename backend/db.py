@@ -78,7 +78,8 @@ def init_db() -> None:
             workflow_id TEXT,
             step_id TEXT,
             packet TEXT,
-            created_at TEXT
+            created_at TEXT,
+            resolved_at TEXT
         )
     """)
 

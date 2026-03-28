@@ -3,6 +3,7 @@ FastAPI application for Process Autopsy Agent — Phase 1.
 """
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import List, Optional
 import random
 
@@ -433,4 +434,157 @@ def inject_chaos():
             message=f"Chaos injection failed: {str(e)}",
             failures_injected=[],
             audit_entries=[],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Escalations & Learning Endpoints (Phase 7)
+# ---------------------------------------------------------------------------
+
+@app.get("/escalations", response_model=ActiveIssuesResponse)
+def get_escalations():
+    """Get unresolved escalations for human review."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Get unresolved escalations with workflow/step details
+        rows = cursor.execute("""
+            SELECT e.id, e.workflow_id, e.step_id, e.packet, e.created_at,
+                   w.name, w.vendor, s.step_name, s.assignee
+            FROM escalations e
+            JOIN workflows w ON w.id = e.workflow_id
+            JOIN steps s ON s.id = e.step_id
+            WHERE e.resolved_at IS NULL
+            ORDER BY e.created_at DESC
+        """).fetchall()
+        
+        conn.close()
+        
+        issue_models = [
+            ActiveIssue(
+                workflow_id=row["workflow_id"],
+                step_id=row["step_id"],
+                step_name=row["step_name"],
+                assignee=row["assignee"] or "unassigned",
+                failure_type="escalated",
+                hours_overdue=0.0,
+                risk_score=9999.0,  # Escalations have highest priority
+            )
+            for row in rows
+        ]
+        
+        total_risk = sum(issue.risk_score for issue in issue_models)
+        
+        return ActiveIssuesResponse(
+            success=True,
+            issues=issue_models,
+            total_risk_exposure=round(total_risk, 2),
+        )
+    
+    except Exception as e:
+        print(f"Error fetching escalations: {e}")
+        return ActiveIssuesResponse(
+            success=False,
+            issues=[],
+            total_risk_exposure=0.0,
+        )
+
+
+class MarkResolvedRequest(BaseModel):
+    escalation_id: str
+
+
+class MarkResolvedResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@app.post("/mark-resolved", response_model=MarkResolvedResponse)
+def mark_escalation_resolved(payload: MarkResolvedRequest):
+    """Mark an escalation as reviewed/resolved by human."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Verify escalation exists
+        esc = cursor.execute(
+            "SELECT id FROM escalations WHERE id = ?", (payload.escalation_id,)
+        ).fetchone()
+        
+        if not esc:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Escalation {payload.escalation_id} not found")
+        
+        # Mark as resolved
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            "UPDATE escalations SET resolved_at = ? WHERE id = ?",
+            (now, payload.escalation_id),
+        )
+        conn.commit()
+        conn.close()
+        
+        return MarkResolvedResponse(
+            success=True,
+            message="Escalation marked as reviewed",
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        return MarkResolvedResponse(
+            success=False,
+            message=f"Error marking escalation: {str(e)}",
+        )
+
+
+class StallPattern(BaseModel):
+    approver_id: str
+    condition: str
+    stall_rate: float
+    sample_count: int
+
+
+class StallPatternsResponse(BaseModel):
+    success: bool
+    patterns: List[StallPattern]
+
+
+@app.get("/stall-patterns", response_model=StallPatternsResponse)
+def get_stall_patterns():
+    """Get top 5 stall patterns by rate (learned behavioral patterns)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        rows = cursor.execute("""
+            SELECT approver_id, condition, stall_rate, sample_count
+            FROM stall_patterns
+            ORDER BY stall_rate DESC
+            LIMIT 5
+        """).fetchall()
+        
+        conn.close()
+        
+        patterns = [
+            StallPattern(
+                approver_id=row["approver_id"],
+                condition=row["condition"],
+                stall_rate=float(row["stall_rate"]),
+                sample_count=int(row["sample_count"]),
+            )
+            for row in rows
+        ]
+        
+        return StallPatternsResponse(
+            success=True,
+            patterns=patterns,
+        )
+    
+    except Exception as e:
+        print(f"Error fetching stall patterns: {e}")
+        return StallPatternsResponse(
+            success=False,
+            patterns=[],
         )

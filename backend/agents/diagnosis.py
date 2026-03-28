@@ -220,6 +220,24 @@ class DiagnosisAgent:
             "reasoning": "Default fallback due to classification failure",
         }
 
+    @staticmethod
+    def _normalize_stall_type(stall_type: str) -> str:
+        """Normalize input stall_type to allowed values."""
+        stall_type = str(stall_type).lower().strip()
+        
+        # Map variations to canonical names
+        mapping = {
+            "duplicate": "duplicate_invoice",
+            "duplicate_invoice": "duplicate_invoice",
+            "missing": "missing_data",
+            "missing_data": "missing_data",
+            "wrong_approver": "wrong_approver",
+            "external_hold": "external_hold",
+            "amount_variance": "amount_variance",
+        }
+        
+        return mapping.get(stall_type, "external_hold")
+
     def run(self, issue: dict[str, Any]) -> dict[str, Any]:
         workflow_id = str(issue.get("workflow_id", ""))
         step_id = str(issue.get("step_id", ""))
@@ -227,7 +245,7 @@ class DiagnosisAgent:
         # Check for cached diagnosis first
         cached = self._check_cached_diagnosis(workflow_id, step_id)
         if cached:
-            print(f"DEBUG: Using cached diagnosis for {workflow_id}/{step_id}", file=__import__('sys').stderr)
+            print(f"[DIAGNOSIS] Using cached diagnosis for {workflow_id}/{step_id}", file=__import__('sys').stderr)
             return cached
 
         pattern_summary = self._load_pattern_summary(str(issue.get("assignee", "")))
@@ -248,28 +266,36 @@ class DiagnosisAgent:
                 raw = str(data.get("response", "")).strip()
                 
                 # DEBUG: Print raw LLM output before parsing
-                print(f"RAW LLM OUTPUT: {raw}", file=__import__('sys').stderr)
+                print(f"[DIAGNOSIS] RAW LLM: {raw[:80]}", file=__import__('sys').stderr)
                 
                 blob = self._extract_json_blob(raw)
                 if not blob:
-                    print(f"DEBUG: No JSON blob found in {raw[:60]}...", file=__import__('sys').stderr)
+                    print(f"[DIAGNOSIS] No JSON blob found in attempt {attempt}", file=__import__('sys').stderr)
                     continue
 
                 parsed = json.loads(blob)
                 validated = DiagnosisResult.model_validate(parsed)
 
-                if validated.stall_type not in ALLOWED_TYPES:
-                    print(f"DEBUG: Invalid stall_type={validated.stall_type}", file=__import__('sys').stderr)
-                    continue
+                # CRITICAL: Normalize stall_type to allowed values
+                normalized_type = self._normalize_stall_type(validated.stall_type)
+                print(f"[DIAGNOSIS] Normalized {validated.stall_type} → {normalized_type}", file=__import__('sys').stderr)
+                
                 if not (0.0 <= float(validated.confidence) <= 1.0):
-                    print(f"DEBUG: Invalid confidence={validated.confidence}", file=__import__('sys').stderr)
-                    continue
+                    print(f"[DIAGNOSIS] Invalid confidence={validated.confidence}, clamping to 0.6", file=__import__('sys').stderr)
+                    confidence = max(0.0, min(1.0, float(validated.confidence)))
+                else:
+                    confidence = float(validated.confidence)
 
-                print(f"DEBUG: Attempt {attempt} succeeded", file=__import__('sys').stderr)
-                return validated.model_dump()
+                result = {
+                    "stall_type": normalized_type,
+                    "confidence": confidence,
+                    "reasoning": validated.reasoning,
+                }
+                print(f"[DIAGNOSIS] Attempt {attempt} succeeded: {result['stall_type']}", file=__import__('sys').stderr)
+                return result
             except (requests.RequestException, ValueError, ValidationError, json.JSONDecodeError) as e:
-                print(f"DEBUG: Attempt {attempt} failed: {type(e).__name__}", file=__import__('sys').stderr)
+                print(f"[DIAGNOSIS] Attempt {attempt} failed: {type(e).__name__}: {str(e)[:60]}", file=__import__('sys').stderr)
                 continue
 
-        print("DEBUG: All retries exhausted, using fallback", file=__import__('sys').stderr)
+        print(f"[DIAGNOSIS] All retries exhausted for {workflow_id}/{step_id}, using fallback", file=__import__('sys').stderr)
         return self._fallback()

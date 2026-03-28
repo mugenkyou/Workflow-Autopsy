@@ -138,6 +138,9 @@ class ActionAgent:
 
         conn = get_connection()
         cur = conn.cursor()
+        
+        # CRITICAL: Track processing attempt every time we execute an action
+        now_iso = self._now_iso()
 
         try:
             if stall_type == "wrong_approver":
@@ -146,11 +149,12 @@ class ActionAgent:
                 old_assignee = (row["assignee"] if row and row["assignee"] else assignee)
                 backup = self._select_backup_approver(assignee, workflow_id, step_id)
                 cur.execute(
-                    "UPDATE steps SET assignee = ?, status = 'in_progress' WHERE id = ?",
-                    (backup, step_id),
+                    "UPDATE steps SET assignee = ?, status = 'in_progress', completed_at = ? WHERE id = ?",
+                    (backup, step_id, now_iso),
                 )
                 new_status = "in_progress"
                 details = f"Reassigned from {old_assignee} to {backup}"
+                print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
 
             elif stall_type == "external_hold":
                 if ENABLE_ESCALATION:
@@ -168,7 +172,7 @@ class ActionAgent:
                         "diagnosis": stall_type,
                         "diagnosis_reasoning": diag_reasoning,
                         "priority": "high" if float(issue.get("risk_score", 0)) > 1500 else "medium",
-                        "created_at": self._now_iso(),
+                        "created_at": now_iso,
                     }
                     existing = cur.execute(
                         "SELECT id FROM escalations "
@@ -181,30 +185,45 @@ class ActionAgent:
                     else:
                         cur.execute(
                             "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
-                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
+                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), now_iso),
                         )
                         details = f"Escalated (summary: {summary[:100]})"
+                    # CRITICAL: Mark step as completed
+                    cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                    print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
                 else:
                     # Escalation disabled for stable demo mode.
                     action_taken = "monitor_only"
                     new_status = self._safe_status_update(cur, step_id, "in_progress")
                     details = "external delay — monitoring"
+                    # CRITICAL: Mark step as completed
+                    cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                    print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
 
             elif stall_type == "duplicate_invoice":
                 action_taken = "flag_duplicate"
                 cur.execute("UPDATE workflows SET status = 'duplicate_hold' WHERE id = ?", (workflow_id,))
                 new_status = "duplicate_hold"
                 details = "Workflow status changed to duplicate_hold"
+                # CRITICAL: Mark step as completed
+                cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
 
             elif stall_type == "missing_data":
                 action_taken = "request_data"
                 new_status = self._safe_status_update(cur, step_id, "pending_data")
                 details = "Step marked pending_data; requested invoice metadata and supporting documents"
+                # CRITICAL: Mark step as completed
+                cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
 
             elif stall_type == "amount_variance":
                 action_taken = "auto_reject"
                 new_status = self._safe_status_update(cur, step_id, "rejected")
                 details = "Step rejected due to amount variance against expected value"
+                # CRITICAL: Mark step as completed
+                cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> completed", file=__import__('sys').stderr)
 
             else:
                 if ENABLE_ESCALATION:
@@ -215,7 +234,7 @@ class ActionAgent:
                         "diagnosis": stall_type,
                         "diagnosis_reasoning": diag_reasoning,
                         "priority": "medium",
-                        "created_at": self._now_iso(),
+                        "created_at": now_iso,
                     }
                     existing = cur.execute(
                         "SELECT id FROM escalations "
@@ -228,16 +247,23 @@ class ActionAgent:
                     else:
                         cur.execute(
                             "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
-                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
+                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), now_iso),
                         )
                         details = "Unknown diagnosis type escalated deterministically"
+                    # CRITICAL: Mark step as completed
+                    cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                    print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} (fallback) -> completed", file=__import__('sys').stderr)
                 else:
                     action_taken = "monitor_only"
                     new_status = self._safe_status_update(cur, step_id, "in_progress")
                     details = "external delay — monitoring"
+                    # CRITICAL: Mark step as completed
+                    cur.execute("UPDATE steps SET completed_at = ? WHERE id = ?", (step_id, now_iso))
+                    print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} (fallback) -> completed", file=__import__('sys').stderr)
 
             self._update_stall_patterns(conn, approver_id=assignee, stall_type=stall_type)
             conn.commit()
+            print(f"[ACTION] RESOLVED: {workflow_id}/{step_id} via {action_taken}", file=__import__('sys').stderr)
             return {
                 "action_taken": action_taken,
                 "new_status": new_status,

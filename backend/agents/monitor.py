@@ -44,6 +44,22 @@ class MonitorAgent:
             return "duplicate"
         return "sla_breach"
 
+    @staticmethod
+    def _was_recently_processed(conn, workflow_id: str, step_id: str, time_window_minutes: int = 5) -> bool:
+        """Check if this workflow/step pair was processed in audit_log within the last N minutes."""
+        cur = conn.cursor()
+        cutoff_time = (datetime.utcnow() - timedelta(minutes=time_window_minutes)).isoformat()
+        row = cur.execute(
+            "SELECT COUNT(*) as cnt FROM audit_log "
+            "WHERE workflow_id = ? AND step_id = ? AND timestamp >= ? "
+            "LIMIT 1",
+            (workflow_id, step_id, cutoff_time),
+        ).fetchone()
+        was_processed = bool(row and row["cnt"] > 0)
+        if was_processed:
+            print(f"[DEDUP] Skipping {workflow_id}/{step_id}: recently processed", file=__import__('sys').stderr)
+        return was_processed
+
     def run(self) -> list[dict[str, Any]]:
         """Return overdue in-progress issues + stalled/breached steps, ordered by descending risk score."""
         conn = get_connection()
@@ -87,6 +103,10 @@ class MonitorAgent:
                 created_at=row["created_at"],
             )
             failure_type = self._failure_type(row["step_name"], duplicate)
+
+            # CRITICAL: Check if recently processed to prevent reprocessing
+            if self._was_recently_processed(conn, row["workflow_id"], row["step_id"]):
+                continue
 
             issue = {
                 "workflow_id": row["workflow_id"],
@@ -135,6 +155,10 @@ class MonitorAgent:
             # Classify failure type based on step status
             failure_type = "stall" if row["status"] == "stalled" else "sla_breach"
 
+            # CRITICAL: Check if recently processed to prevent reprocessing
+            if self._was_recently_processed(conn, row["workflow_id"], row["step_id"]):
+                continue
+
             issue = {
                 "workflow_id": row["workflow_id"],
                 "step_id": row["step_id"],
@@ -179,6 +203,10 @@ class MonitorAgent:
             hours_overdue = max((now - deadline).total_seconds() / 3600.0, 0.0)
             po_amount = float(row["po_amount"])
             risk_score = hours_overdue * po_amount * 0.001
+
+            # CRITICAL: Check if recently processed to prevent reprocessing
+            if self._was_recently_processed(conn, row["workflow_id"], row["step_id"]):
+                continue
 
             issue = {
                 "workflow_id": row["workflow_id"],

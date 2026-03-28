@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Any, TypedDict
@@ -25,6 +26,7 @@ class AgentState(TypedDict, total=False):
     audit_entry: dict[str, Any]
     audit_entries: list[dict[str, Any]]
     pipeline_results: list[dict[str, Any]]
+    processed_count: int  # Track how many issues processed in this cycle
 
 
 monitor_agent = MonitorAgent()
@@ -32,23 +34,53 @@ diagnosis_agent = DiagnosisAgent()
 action_agent = ActionAgent()
 audit_agent = AuditAgent()
 
+# Global tracking for debugging
+_cycle_start_time = None
+_max_cycle_duration_seconds = 120  # 2 minutes absolute max per cycle
+
 
 def monitor_node(state: AgentState) -> AgentState:
+    global _cycle_start_time
+    _cycle_start_time = datetime.utcnow()
+    
     issues = monitor_agent.run()
+    
+    print(f"\n[CYCLE] MONITOR: Found {len(issues)} issues to process", file=sys.stderr)
+    if issues:
+        for idx, issue in enumerate(issues[:3]):  # Log first 3
+            print(f"  [{idx+1}] {issue.get('workflow_id')}/{issue.get('step_id')}: {issue.get('failure_type')}", 
+                  file=sys.stderr)
+    
     return {
         "issues": issues,
         "audit_entries": state.get("audit_entries", []),
         "pipeline_results": state.get("pipeline_results", []),
+        "processed_count": 0,
     }
 
 
 def diagnosis_node(state: AgentState) -> AgentState:
+    global _cycle_start_time
+    
+    # Check cycle timeout
+    if _cycle_start_time:
+        elapsed = (datetime.utcnow() - _cycle_start_time).total_seconds()
+        if elapsed > _max_cycle_duration_seconds:
+            print(f"[TIMEOUT] Cycle exceeded {_max_cycle_duration_seconds}s. Terminating.", file=sys.stderr)
+            return {**state, "issues": [], "processed_count": state.get("processed_count", 0)}
+    
     issues = list(state.get("issues", []))
     if not issues:
         return state
 
     current_issue = issues.pop(0)
+    workflow_id = current_issue.get("workflow_id", "?")
+    step_id = current_issue.get("step_id", "?")
+    
+    print(f"[DIAGNOSIS] Processing {workflow_id}/{step_id}", file=sys.stderr)
     diagnosis = diagnosis_agent.run(current_issue)
+    print(f"[DIAGNOSIS] Result: {diagnosis.get('stall_type')} (confidence: {diagnosis.get('confidence')})", 
+          file=sys.stderr)
 
     return {
         **state,
@@ -61,9 +93,14 @@ def diagnosis_node(state: AgentState) -> AgentState:
 def action_node(state: AgentState) -> AgentState:
     issue = state.get("current_issue", {})
     diagnosis = state.get("diagnosis", {})
+    workflow_id = issue.get("workflow_id", "?")
+    step_id = issue.get("step_id", "?")
 
+    print(f"[ACTION] Processing {workflow_id}/{step_id}", file=sys.stderr)
+    
     try:
         action_result = action_agent.run(issue, diagnosis)
+        print(f"[ACTION] Result: {action_result.get('action_taken')}", file=sys.stderr)
     except Exception as exc:
         # Continue processing remaining issues instead of crashing the cycle.
         action_result = {
@@ -71,6 +108,7 @@ def action_node(state: AgentState) -> AgentState:
             "new_status": "unchanged",
             "details": f"DB action failed: {type(exc).__name__}: {exc}",
         }
+        print(f"[ACTION] ERROR: {action_result['details']}", file=sys.stderr)
 
     return {
         **state,
@@ -82,6 +120,11 @@ def audit_node(state: AgentState) -> AgentState:
     issue = state.get("current_issue", {})
     diagnosis = state.get("diagnosis", {})
     action_result = state.get("action_result", {})
+    workflow_id = issue.get("workflow_id", "?")
+    step_id = issue.get("step_id", "?")
+    processed_count = state.get("processed_count", 0) + 1
+
+    print(f"[AUDIT] Recording issue #{processed_count}: {workflow_id}/{step_id}", file=sys.stderr)
 
     audit_entries = list(state.get("audit_entries", []))
     pipeline_results = list(state.get("pipeline_results", []))
@@ -123,15 +166,30 @@ def audit_node(state: AgentState) -> AgentState:
         "audit_entry": enriched_entry,
         "audit_entries": audit_entries,
         "pipeline_results": pipeline_results,
+        "processed_count": processed_count,
     }
 
 
 def _route_after_monitor(state: AgentState) -> str:
-    return "diagnosis" if state.get("issues") else END
+    issues_remaining = len(state.get("issues", []))
+    if issues_remaining:
+        print(f"[ROUTE] {issues_remaining} issues remaining, continue processing", file=sys.stderr)
+        return "diagnosis"
+    else:
+        print(f"[ROUTE] No issues remaining, END cycle", file=sys.stderr)
+        return END
 
 
 def _route_after_audit(state: AgentState) -> str:
-    return "diagnosis" if state.get("issues") else END
+    issues_remaining = len(state.get("issues", []))
+    processed_count = state.get("processed_count", 0)
+    
+    if issues_remaining:
+        print(f"[ROUTE] {processed_count} processed, {issues_remaining} remaining, continue", file=sys.stderr)
+        return "diagnosis"
+    else:
+        print(f"[ROUTE] CYCLE COMPLETE: {processed_count} issues processed", file=sys.stderr)
+        return END
 
 
 def _build_graph():
@@ -159,17 +217,24 @@ def _print_cycle_summary(audit_entries: list[dict[str, Any]]) -> None:
     confidence_total = 0.0
     confidence_count = 0
 
-    for entry in audit_entries:
+    print(f"\n[SUMMARY] Total issues processed: {total_issues_processed}", file=sys.stderr)
+    
+    for idx, entry in enumerate(audit_entries, 1):
         issue = entry.get("issue", {}) or {}
         diagnosis = entry.get("diagnosis", {}) or {}
         action_result = entry.get("action_result", {}) or {}
+        
+        workflow_id = issue.get("workflow_id", "?")
+        step_id = issue.get("step_id", "?")
+        action_taken = action_result.get("action_taken", "unknown")
+        
+        print(f"  [#{idx}] {workflow_id}/{step_id} via {action_taken}", file=sys.stderr)
 
         risk = float(issue.get("risk_score", 0.0) or 0.0)
         total_risk_handled += risk
         if highest_risk_issue is None or risk > float(highest_risk_issue.get("risk_score", 0.0) or 0.0):
             highest_risk_issue = issue
 
-        action_taken = str(action_result.get("action_taken", entry.get("action", "unknown")))
         action_counts[action_taken] = action_counts.get(action_taken, 0) + 1
 
         confidence = diagnosis.get("confidence", entry.get("confidence", None))

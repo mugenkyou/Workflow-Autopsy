@@ -55,7 +55,8 @@ class MonitorAgent:
             "s.status, w.vendor, w.po_amount, w.created_at "
             "FROM steps s "
             "JOIN workflows w ON w.id = s.workflow_id "
-            "WHERE s.status = 'in_progress' AND s.completed_at IS NULL"
+            "WHERE s.status = 'in_progress' AND s.completed_at IS NULL "
+            "AND w.status != 'duplicate_hold'"
         ).fetchall()
 
         now = datetime.utcnow()
@@ -101,9 +102,9 @@ class MonitorAgent:
             ts = now.strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{ts}] ISSUE: {issue['workflow_id']} | {issue['step_name']} | Risk: {issue['risk_score']:.2f}")
 
-        # Query 2: Stalled and breached steps (injected failures)
+        # Query 2: Stalled and breached steps (only if overdue)
         failed_rows = cur.execute(
-            "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.started_at, "
+            "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.sla_hours, s.started_at, "
             "s.status, w.vendor, w.po_amount, w.created_at "
             "FROM steps s "
             "JOIN workflows w ON w.id = s.workflow_id "
@@ -119,8 +120,15 @@ class MonitorAgent:
             except ValueError:
                 continue
 
-            # For failed steps, compute hours since they were started
-            hours_overdue = max((now - started_at).total_seconds() / 3600.0, 0.0)
+            if row["sla_hours"] is None:
+                continue
+
+            deadline = started_at + timedelta(hours=float(row["sla_hours"]))
+            if deadline >= now:
+                continue
+
+            # For failed steps, compute hours overdue from SLA deadline
+            hours_overdue = max((now - deadline).total_seconds() / 3600.0, 0.0)
             po_amount = float(row["po_amount"])
             risk_score = hours_overdue * po_amount * 0.001
 
@@ -141,9 +149,9 @@ class MonitorAgent:
             ts = now.strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{ts}] INJECTED: {issue['workflow_id']} | {issue['step_name']} ({failure_type}) | Risk: {issue['risk_score']:.2f}")
 
-        # Query 3: Duplicate workflows (injected duplicate failures)
+        # Query 3: Duplicate workflows (only if overdue)
         dup_rows = cur.execute(
-            "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.started_at, "
+            "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.sla_hours, s.started_at, "
             "w.vendor, w.po_amount, w.created_at "
             "FROM steps s "
             "JOIN workflows w ON w.id = s.workflow_id "
@@ -160,8 +168,15 @@ class MonitorAgent:
             except ValueError:
                 continue
 
-            # For duplicate workflows, compute hours since step started
-            hours_overdue = max((now - started_at).total_seconds() / 3600.0, 0.0)
+            if row["sla_hours"] is None:
+                continue
+
+            deadline = started_at + timedelta(hours=float(row["sla_hours"]))
+            if deadline >= now:
+                continue
+
+            # For duplicate workflows, compute hours overdue from SLA deadline
+            hours_overdue = max((now - deadline).total_seconds() / 3600.0, 0.0)
             po_amount = float(row["po_amount"])
             risk_score = hours_overdue * po_amount * 0.001
 

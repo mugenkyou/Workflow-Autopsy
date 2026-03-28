@@ -17,6 +17,9 @@ if str(BACKEND_DIR) not in sys.path:
 from db import get_connection
 
 
+ENABLE_ESCALATION = False
+
+
 class ActionAgent:
     """Execute deterministic corrective actions based on diagnosis output."""
 
@@ -150,27 +153,42 @@ class ActionAgent:
                 details = f"Reassigned from {old_assignee} to {backup}"
 
             elif stall_type == "external_hold":
-                action_taken = "escalate_sla"
-                new_status = self._safe_status_update(cur, step_id, "escalated")
-                summary = self._generate_escalation_summary(issue, diagnosis)
-                if not summary.strip():
-                    summary = (
-                        f"Step {step_name} is overdue by {issue.get('hours_overdue')} hours. "
-                        "Escalation is required due to external dependencies. "
-                        "Immediate follow-up is recommended."
-                    )
-                packet = {
-                    "summary": summary,
-                    "diagnosis": stall_type,
-                    "diagnosis_reasoning": diag_reasoning,
-                    "priority": "high" if float(issue.get("risk_score", 0)) > 1500 else "medium",
-                    "created_at": self._now_iso(),
-                }
-                cur.execute(
-                    "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
-                )
-                details = f"Escalated (summary: {summary[:100]})"
+                if ENABLE_ESCALATION:
+                    action_taken = "escalate_sla"
+                    new_status = self._safe_status_update(cur, step_id, "escalated")
+                    summary = self._generate_escalation_summary(issue, diagnosis)
+                    if not summary.strip():
+                        summary = (
+                            f"Step {step_name} is overdue by {issue.get('hours_overdue')} hours. "
+                            "Escalation is required due to external dependencies. "
+                            "Immediate follow-up is recommended."
+                        )
+                    packet = {
+                        "summary": summary,
+                        "diagnosis": stall_type,
+                        "diagnosis_reasoning": diag_reasoning,
+                        "priority": "high" if float(issue.get("risk_score", 0)) > 1500 else "medium",
+                        "created_at": self._now_iso(),
+                    }
+                    existing = cur.execute(
+                        "SELECT id FROM escalations "
+                        "WHERE workflow_id = ? AND step_id = ? AND resolved_at IS NULL "
+                        "LIMIT 1",
+                        (workflow_id, step_id),
+                    ).fetchone()
+                    if existing:
+                        details = f"Already escalated (id: {existing['id']})"
+                    else:
+                        cur.execute(
+                            "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
+                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
+                        )
+                        details = f"Escalated (summary: {summary[:100]})"
+                else:
+                    # Escalation disabled for stable demo mode.
+                    action_taken = "monitor_only"
+                    new_status = self._safe_status_update(cur, step_id, "in_progress")
+                    details = "external delay — monitoring"
 
             elif stall_type == "duplicate_invoice":
                 action_taken = "flag_duplicate"
@@ -189,20 +207,34 @@ class ActionAgent:
                 details = "Step rejected due to amount variance against expected value"
 
             else:
-                action_taken = "escalate_sla"
-                new_status = self._safe_status_update(cur, step_id, "escalated")
-                packet = {
-                    "summary": "Unknown diagnosis type encountered; deterministic escalation triggered.",
-                    "diagnosis": stall_type,
-                    "diagnosis_reasoning": diag_reasoning,
-                    "priority": "medium",
-                    "created_at": self._now_iso(),
-                }
-                cur.execute(
-                    "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
-                )
-                details = "Unknown diagnosis type escalated deterministically"
+                if ENABLE_ESCALATION:
+                    action_taken = "escalate_sla"
+                    new_status = self._safe_status_update(cur, step_id, "escalated")
+                    packet = {
+                        "summary": "Unknown diagnosis type encountered; deterministic escalation triggered.",
+                        "diagnosis": stall_type,
+                        "diagnosis_reasoning": diag_reasoning,
+                        "priority": "medium",
+                        "created_at": self._now_iso(),
+                    }
+                    existing = cur.execute(
+                        "SELECT id FROM escalations "
+                        "WHERE workflow_id = ? AND step_id = ? AND resolved_at IS NULL "
+                        "LIMIT 1",
+                        (workflow_id, step_id),
+                    ).fetchone()
+                    if existing:
+                        details = f"Already escalated (id: {existing['id']})"
+                    else:
+                        cur.execute(
+                            "INSERT INTO escalations (id, workflow_id, step_id, packet, created_at) VALUES (?, ?, ?, ?, ?)",
+                            (str(uuid.uuid4()), workflow_id, step_id, json.dumps(packet), self._now_iso()),
+                        )
+                        details = "Unknown diagnosis type escalated deterministically"
+                else:
+                    action_taken = "monitor_only"
+                    new_status = self._safe_status_update(cur, step_id, "in_progress")
+                    details = "external delay — monitoring"
 
             self._update_stall_patterns(conn, approver_id=assignee, stall_type=stall_type)
             conn.commit()

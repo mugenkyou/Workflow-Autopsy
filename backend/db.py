@@ -83,6 +83,22 @@ def init_db() -> None:
         )
     """)
 
+    # Backward-compat cleanup: keep only the newest unresolved escalation
+    # per (workflow_id, step_id) so unique index creation won't fail.
+    cursor.execute(
+        "DELETE FROM escalations "
+        "WHERE resolved_at IS NULL AND rowid NOT IN ("
+        "  SELECT MAX(rowid) FROM escalations "
+        "  WHERE resolved_at IS NULL "
+        "  GROUP BY workflow_id, step_id"
+        ")"
+    )
+
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_escalations_open_unique "
+        "ON escalations(workflow_id, step_id) WHERE resolved_at IS NULL"
+    )
+
     conn.commit()
     conn.close()
 
@@ -153,13 +169,8 @@ ASSIGNEES = [
     "Siddharth Bhat",
 ]
 
-# Status distribution: indices 0-2 stalled, 3-5 at_risk, 6-7 breached, 8-14 on_track
-WORKFLOW_STATUSES = (
-    ["stalled"] * 3
-    + ["at_risk"] * 3
-    + ["breached"] * 2
-    + ["on_track"] * 7
-)
+# Stable demo startup: all workflows healthy by default.
+WORKFLOW_STATUSES = ["on_track"] * 15
 
 
 def seed_data() -> None:
@@ -242,22 +253,17 @@ def repair_data() -> None:
     - No step has status 'pending' (replace with 'in_progress')
     - Every workflow has exactly 1 active step (completed_at IS NULL)
     - Timestamps are recalculated relative to current time
-    - At least 5 steps are overdue (started_at + sla_hours < now)
+    - Startup is clean: no overdue active steps
     """
     conn = get_connection()
     cursor = conn.cursor()
 
-    allowed_active = ("in_progress", "stalled", "breached")
+    allowed_active = ("in_progress",)
     allowed_all = ("in_progress", "completed", "stalled", "breached")
     now = datetime.utcnow()
 
     # ---- 0. Normalize workflow statuses to canonical distribution ----
-    canonical_statuses = (
-        ["stalled"] * 3
-        + ["at_risk"] * 3
-        + ["breached"] * 2
-        + ["on_track"] * 7
-    )
+    canonical_statuses = ["on_track"] * 15
     ordered_wfs = cursor.execute("SELECT id FROM workflows ORDER BY created_at").fetchall()
     for i, wf in enumerate(ordered_wfs):
         if i < len(canonical_statuses):
@@ -266,8 +272,16 @@ def repair_data() -> None:
                 (canonical_statuses[i], wf["id"]),
             )
 
+    # Clean demo startup: clear unresolved historical escalations.
+    cursor.execute(
+        "UPDATE escalations SET resolved_at = ? WHERE resolved_at IS NULL",
+        (now.isoformat(),),
+    )
+
     # ---- 1. Normalize step statuses ----
     cursor.execute("UPDATE steps SET status = 'in_progress' WHERE status = 'pending'")
+    cursor.execute("UPDATE steps SET status = 'in_progress' WHERE completed_at IS NULL AND status IN ('stalled', 'breached')")
+    cursor.execute("UPDATE workflows SET status = 'on_track' WHERE status IN ('stalled', 'breached', 'duplicate_hold', 'escalated')")
     cursor.execute(
         "UPDATE steps SET status = 'in_progress' "
         "WHERE completed_at IS NULL AND status NOT IN (?, ?, ?, ?)",
@@ -284,7 +298,7 @@ def repair_data() -> None:
     for wf_id in workflow_ids:
         active_steps = cursor.execute(
             "SELECT id, rowid, started_at FROM steps "
-            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?, ?, ?) "
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?) "
             "ORDER BY datetime(COALESCE(started_at, '1970-01-01T00:00:00')) DESC, rowid DESC",
             (wf_id, *allowed_active),
         ).fetchall()
@@ -314,7 +328,7 @@ def repair_data() -> None:
                     (now.isoformat(), step["id"]),
                 )
             cursor.execute(
-                "UPDATE steps SET status = CASE WHEN status IN (?, ?, ?) THEN status ELSE 'in_progress' END "
+                "UPDATE steps SET status = CASE WHEN status IN (?) THEN status ELSE 'in_progress' END "
                 "WHERE id = ?",
                 (*allowed_active, keep_id),
             )
@@ -332,7 +346,7 @@ def repair_data() -> None:
 
         active_row = cursor.execute(
             "SELECT id, status FROM steps "
-            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?, ?, ?) "
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN (?) "
             "ORDER BY datetime(COALESCE(started_at, '1970-01-01T00:00:00')) DESC, rowid DESC LIMIT 1",
             (wf_id, *allowed_active),
         ).fetchone()
@@ -343,10 +357,11 @@ def repair_data() -> None:
         for i, step in enumerate(steps):
             sla = random.choice([12, 18, 24])
             if step["id"] == active_id:
-                started_at = (now - timedelta(hours=random.randint(1, 48))).isoformat()
+                # Keep active steps safely within SLA at startup.
+                started_at = (now - timedelta(hours=random.randint(1, 3))).isoformat()
                 cursor.execute(
                     "UPDATE steps SET started_at = ?, completed_at = NULL, sla_hours = ?, "
-                    "status = CASE WHEN status IN (?, ?, ?) THEN status ELSE 'in_progress' END "
+                    "status = CASE WHEN status IN (?) THEN status ELSE 'in_progress' END "
                     "WHERE id = ?",
                     (started_at, sla, *allowed_active, step["id"]),
                 )
@@ -363,28 +378,27 @@ def repair_data() -> None:
                     (started_dt.isoformat(), completed_dt.isoformat(), sla, step["id"]),
                 )
 
-    # ---- 4. Ensure at least 5 overdue active steps ----
+    # ---- 4. Ensure zero overdue active steps at startup ----
     overdue_count = cursor.execute(
         "SELECT COUNT(*) FROM steps "
-        "WHERE completed_at IS NULL AND status IN (?, ?, ?) "
+        "WHERE completed_at IS NULL AND status IN (?) "
         "AND datetime(started_at, '+' || sla_hours || ' hours') < datetime('now')",
         allowed_active,
     ).fetchone()[0]
 
-    if overdue_count < 5:
-        needed = 5 - overdue_count
+    if overdue_count > 0:
         rows = cursor.execute(
             "SELECT id, sla_hours FROM steps "
-            "WHERE completed_at IS NULL AND status IN (?, ?, ?) "
-            "AND datetime(started_at, '+' || sla_hours || ' hours') >= datetime('now') "
-            "ORDER BY datetime(started_at) ASC LIMIT ?",
-            (*allowed_active, needed),
+            "WHERE completed_at IS NULL AND status IN (?) "
+            "AND datetime(started_at, '+' || sla_hours || ' hours') < datetime('now') "
+            "ORDER BY datetime(started_at) ASC",
+            allowed_active,
         ).fetchall()
         for row in rows:
-            older_hours = (row["sla_hours"] or 12) + random.randint(1, 24)
+            safe_hours = max(1, int((row["sla_hours"] or 12) // 2))
             cursor.execute(
                 "UPDATE steps SET started_at = ? WHERE id = ?",
-                ((now - timedelta(hours=older_hours)).isoformat(), row["id"]),
+                ((now - timedelta(hours=safe_hours)).isoformat(), row["id"]),
             )
 
     # ---- 5. Ensure at least 5 active in_progress steps ----

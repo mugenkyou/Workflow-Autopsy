@@ -3,7 +3,7 @@ FastAPI application for Process Autopsy Agent — Phase 1.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 import random
 
@@ -273,7 +273,7 @@ def inject_failure(payload: InjectFailureRequest):
     if payload.failure_type == "stall":
         # Set the latest in-progress step to 'stalled'
         step = cursor.execute(
-            "SELECT id FROM steps "
+            "SELECT id, sla_hours FROM steps "
             "WHERE workflow_id = ? AND completed_at IS NULL "
             "AND status IN ('in_progress','stalled','breached') "
             "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
@@ -282,20 +282,37 @@ def inject_failure(payload: InjectFailureRequest):
         if not step:
             conn.close()
             raise HTTPException(status_code=409, detail="No active step found to stall")
-
-        cursor.execute("UPDATE steps SET status = 'stalled' WHERE id = ?", (step["id"],))
+        sla_hours = int(step["sla_hours"] or 12)
+        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+        cursor.execute(
+            "UPDATE steps SET status = 'stalled', started_at = ?, completed_at = NULL WHERE id = ?",
+            (overdue_start, step["id"]),
+        )
         cursor.execute("UPDATE workflows SET status = 'stalled' WHERE id = ?", (payload.workflow_id,))
-        message = "Step status set to 'stalled'"
+        message = "Step forced overdue and status set to 'stalled'"
 
     elif payload.failure_type == "duplicate":
-        # Mark workflow as duplicate_hold
+        # Mark workflow as duplicate_hold and make active step overdue
+        step = cursor.execute(
+            "SELECT id, sla_hours FROM steps "
+            "WHERE workflow_id = ? AND completed_at IS NULL "
+            "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
+            (payload.workflow_id,),
+        ).fetchone()
+        if step:
+            sla_hours = int(step["sla_hours"] or 12)
+            overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+            cursor.execute(
+                "UPDATE steps SET started_at = ?, completed_at = NULL, status = 'in_progress' WHERE id = ?",
+                (overdue_start, step["id"]),
+            )
         cursor.execute("UPDATE workflows SET status = 'duplicate_hold' WHERE id = ?", (payload.workflow_id,))
-        message = "Workflow status set to 'duplicate_hold'"
+        message = "Workflow status set to 'duplicate_hold' and active step forced overdue"
 
     elif payload.failure_type == "sla_breach":
         # Mark the latest in-progress step as 'breached'
         step = cursor.execute(
-            "SELECT id FROM steps "
+            "SELECT id, sla_hours FROM steps "
             "WHERE workflow_id = ? AND completed_at IS NULL "
             "AND status IN ('in_progress','stalled','breached') "
             "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
@@ -304,10 +321,14 @@ def inject_failure(payload: InjectFailureRequest):
         if not step:
             conn.close()
             raise HTTPException(status_code=409, detail="No active step found to breach")
-
-        cursor.execute("UPDATE steps SET status = 'breached' WHERE id = ?", (step["id"],))
+        sla_hours = int(step["sla_hours"] or 12)
+        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+        cursor.execute(
+            "UPDATE steps SET status = 'breached', started_at = ?, completed_at = NULL WHERE id = ?",
+            (overdue_start, step["id"]),
+        )
         cursor.execute("UPDATE workflows SET status = 'breached' WHERE id = ?", (payload.workflow_id,))
-        message = "Step status set to 'breached'"
+        message = "Step forced overdue and status set to 'breached'"
 
     conn.commit()
     conn.close()
@@ -400,7 +421,7 @@ def get_active_issues():
 
 @app.post("/inject-chaos", response_model=InjectChaosResponse)
 def inject_chaos():
-    """Inject 3 random failures (stall, duplicate, sla_breach) and run cycle."""
+    """Inject 3 random failures (stall, duplicate, sla_breach) without running cycle."""
     try:
         conn = get_connection()
         cursor = conn.cursor()

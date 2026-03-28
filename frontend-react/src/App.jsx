@@ -314,9 +314,13 @@ export default function App() {
           <WorkflowHeatmap workflows={workflows} activeIssues={activeIssues} />
         </div>
 
-        {/* Right: Risk Queue + Audit Trail */}
-        <div className="right-panel">
+        {/* Middle: Active Issues */}
+        <div className="middle-panel">
           <RiskQueue issues={activeIssues} />
+        </div>
+
+        {/* Right: Audit Trail */}
+        <div className="right-panel">
           <AuditTrail logs={auditLog} />
         </div>
       </div>

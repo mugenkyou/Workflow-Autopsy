@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import sys
+import threading
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -27,6 +28,8 @@ class AgentState(TypedDict, total=False):
     audit_entries: list[dict[str, Any]]
     pipeline_results: list[dict[str, Any]]
     processed_count: int  # Track how many issues processed in this cycle
+    processing_attempt: int
+    processed_issue_keys: list[str]
 
 
 monitor_agent = MonitorAgent()
@@ -37,6 +40,22 @@ audit_agent = AuditAgent()
 # Global tracking for debugging
 _cycle_start_time = None
 _max_cycle_duration_seconds = 120  # 2 minutes absolute max per cycle
+_run_cycle_lock = threading.Lock()
+
+
+def _issue_key(issue: dict[str, Any]) -> str:
+    return f"{issue.get('workflow_id', '')}:{issue.get('step_id', '')}"
+
+
+def _already_audited(workflow_id: str, step_id: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    row = cur.execute(
+        "SELECT 1 FROM audit_log WHERE workflow_id = ? AND step_id = ? LIMIT 1",
+        (workflow_id, step_id),
+    ).fetchone()
+    conn.close()
+    return bool(row)
 
 
 def monitor_node(state: AgentState) -> AgentState:
@@ -56,6 +75,8 @@ def monitor_node(state: AgentState) -> AgentState:
         "audit_entries": state.get("audit_entries", []),
         "pipeline_results": state.get("pipeline_results", []),
         "processed_count": 0,
+        "processing_attempt": 0,
+        "processed_issue_keys": [],
     }
 
 
@@ -70,29 +91,65 @@ def diagnosis_node(state: AgentState) -> AgentState:
             return {**state, "issues": [], "processed_count": state.get("processed_count", 0)}
     
     issues = list(state.get("issues", []))
+    processed_issue_keys = set(state.get("processed_issue_keys", []))
     if not issues:
-        return state
+        return {**state, "current_issue": {}, "diagnosis": {}}
 
-    current_issue = issues.pop(0)
-    workflow_id = current_issue.get("workflow_id", "?")
-    step_id = current_issue.get("step_id", "?")
-    
-    print(f"[DIAGNOSIS] Processing {workflow_id}/{step_id}", file=sys.stderr)
-    diagnosis = diagnosis_agent.run(current_issue)
-    print(f"[DIAGNOSIS] Result: {diagnosis.get('stall_type')} (confidence: {diagnosis.get('confidence')})", 
-          file=sys.stderr)
+    while issues:
+        current_issue = issues.pop(0)
+        workflow_id = current_issue.get("workflow_id", "?")
+        step_id = current_issue.get("step_id", "?")
+        issue_key = _issue_key(current_issue)
+
+        if issue_key in processed_issue_keys:
+            print(f"[DIAGNOSIS] SKIP duplicate queue entry {workflow_id}/{step_id}", file=sys.stderr)
+            continue
+
+        if _already_audited(str(workflow_id), str(step_id)):
+            print(f"[DIAGNOSIS] SKIP already audited {workflow_id}/{step_id}", file=sys.stderr)
+            continue
+
+        processing_attempt = int(state.get("processing_attempt", 0)) + 1
+        print(
+            f"[LIFECYCLE] workflow_id={workflow_id} step_id={step_id} processing_attempt={processing_attempt}",
+            file=sys.stderr,
+        )
+        diagnosis = diagnosis_agent.run(current_issue)
+        print(
+            f"[DIAGNOSIS] Result: {diagnosis.get('stall_type')} (confidence: {diagnosis.get('confidence')})",
+            file=sys.stderr,
+        )
+
+        return {
+            **state,
+            "issues": issues,
+            "current_issue": current_issue,
+            "diagnosis": diagnosis,
+            "processing_attempt": processing_attempt,
+        }
 
     return {
         **state,
-        "issues": issues,
-        "current_issue": current_issue,
-        "diagnosis": diagnosis,
+        "issues": [],
+        "current_issue": {},
+        "diagnosis": {},
     }
 
 
 def action_node(state: AgentState) -> AgentState:
     issue = state.get("current_issue", {})
     diagnosis = state.get("diagnosis", {})
+    if not issue:
+        return {
+            **state,
+            "action_result": {
+                "action_taken": "skipped",
+                "new_status": "unchanged",
+                "details": "No current issue available",
+                "resolved_status": "skipped",
+            },
+        }
+
     workflow_id = issue.get("workflow_id", "?")
     step_id = issue.get("step_id", "?")
 
@@ -120,6 +177,9 @@ def audit_node(state: AgentState) -> AgentState:
     issue = state.get("current_issue", {})
     diagnosis = state.get("diagnosis", {})
     action_result = state.get("action_result", {})
+    if not issue:
+        return state
+
     workflow_id = issue.get("workflow_id", "?")
     step_id = issue.get("step_id", "?")
     processed_count = state.get("processed_count", 0) + 1
@@ -128,6 +188,7 @@ def audit_node(state: AgentState) -> AgentState:
 
     audit_entries = list(state.get("audit_entries", []))
     pipeline_results = list(state.get("pipeline_results", []))
+    processed_issue_keys = list(state.get("processed_issue_keys", []))
 
     try:
         audit_entry = audit_agent.run(issue, diagnosis, action_result)
@@ -160,6 +221,16 @@ def audit_node(state: AgentState) -> AgentState:
             "audit_entry": audit_entry,
         }
     )
+    processed_issue_keys.append(_issue_key(issue))
+
+    print(
+        "[LIFECYCLE] "
+        f"workflow_id={workflow_id} step_id={step_id} "
+        f"processing_attempt={state.get('processing_attempt', 0)} "
+        f"action_taken={action_result.get('action_taken')} "
+        f"resolved_status={action_result.get('resolved_status', 'unknown')}",
+        file=sys.stderr,
+    )
 
     return {
         **state,
@@ -167,6 +238,10 @@ def audit_node(state: AgentState) -> AgentState:
         "audit_entries": audit_entries,
         "pipeline_results": pipeline_results,
         "processed_count": processed_count,
+        "processed_issue_keys": processed_issue_keys,
+        "current_issue": {},
+        "diagnosis": {},
+        "action_result": {},
     }
 
 
@@ -328,12 +403,19 @@ def _print_cycle_summary(audit_entries: list[dict[str, Any]]) -> None:
 
 
 def run_cycle() -> list[dict[str, Any]]:
+    if not _run_cycle_lock.acquire(blocking=False):
+        print("[CYCLE] Skipping run_cycle: another cycle is already in progress", file=sys.stderr)
+        return []
+
     app = _build_graph()
-    final_state = app.invoke({"issues": [], "audit_entries": [], "pipeline_results": []})
-    results = final_state.get("audit_entries", [])
-    print(f"Total issues processed: {len(results)}")
-    _print_cycle_summary(results)
-    return results
+    try:
+        final_state = app.invoke({"issues": [], "audit_entries": [], "pipeline_results": []})
+        results = final_state.get("audit_entries", [])
+        print(f"Total issues processed: {len(results)}")
+        _print_cycle_summary(results)
+        return results
+    finally:
+        _run_cycle_lock.release()
 
 
 if __name__ == "__main__":

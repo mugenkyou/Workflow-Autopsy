@@ -250,6 +250,7 @@ class DiagnosisAgent:
 
         pattern_summary = self._load_pattern_summary(str(issue.get("assignee", "")))
 
+        # Fast-fail behavior: one retry max, then deterministic fallback.
         max_retries = 1
         for attempt in range(max_retries + 1):
             strict_mode = attempt > 0
@@ -259,7 +260,7 @@ class DiagnosisAgent:
                 resp = requests.post(
                     self.endpoint,
                     json={"model": self.model, "prompt": prompt, "stream": False},
-                    timeout=20,
+                    timeout=3,
                 )
                 resp.raise_for_status()
                 data = resp.json()

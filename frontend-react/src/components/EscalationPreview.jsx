@@ -3,11 +3,12 @@ import "./EscalationPreview.css";
 export default function EscalationPreview({
   escalation,
   onMarkResolved,
+  onSnooze,
   onClose,
 }) {
   return (
-    <div className="escalation-overlay" onClick={onClose}>
-      <div className="escalation-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="escalation-overlay">
+      <div className="escalation-modal">
         {/* Header */}
         <div className="escalation-header">
           <div className="header-content">
@@ -98,6 +99,9 @@ export default function EscalationPreview({
 
         {/* Action Buttons */}
         <div className="escalation-footer">
+          <button className="btn-secondary" onClick={onSnooze}>
+            Snooze 5m
+          </button>
           <button className="btn-secondary" onClick={onClose}>
             Review Later
           </button>

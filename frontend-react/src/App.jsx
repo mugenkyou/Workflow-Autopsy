@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchWorkflows,
   fetchAuditLog,
@@ -17,15 +17,23 @@ import StallInsights from "./components/StallInsights";
 import "./App.css";
 
 export default function App() {
+  // Demo-stable flag: escalation UI and polling are disabled by default.
+  const ENABLE_ESCALATION = false;
+  const ESCALATION_COOLDOWN_MS = 60000;
+  const ESCALATION_SNOOZE_MS = 5 * 60 * 1000;
+
   const [workflows, setWorkflows] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [activeIssues, setActiveIssues] = useState([]);
   const [escalations, setEscalations] = useState([]);
+  const [escalationQueue, setEscalationQueue] = useState([]);
   const [stallPatterns, setStallPatterns] = useState([]);
   const [selectedEscalation, setSelectedEscalation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [apiErrors, setApiErrors] = useState({});
+  const shownEscalationIdsRef = useRef(new Set());
+  const dismissedUntilRef = useRef(new Map());
 
   // Log API base URL on mount
   useEffect(() => {
@@ -93,20 +101,69 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Show next queued escalation when no modal is open.
+  useEffect(() => {
+    if (selectedEscalation || escalationQueue.length === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const next = escalationQueue.find((item) => {
+      const dismissedUntil = dismissedUntilRef.current.get(item.id) || 0;
+      return dismissedUntil <= now;
+    });
+
+    if (!next) {
+      return;
+    }
+
+    setEscalationQueue((prev) => prev.filter((item) => item.id !== next.id));
+    shownEscalationIdsRef.current.add(next.id);
+    setSelectedEscalation(next);
+  }, [selectedEscalation, escalationQueue]);
+
   // Poll escalations every 5s
   useEffect(() => {
+    if (!ENABLE_ESCALATION) {
+      return;
+    }
+
     const pollEscalations = async () => {
       try {
         console.log("Fetching escalations...");
         const res = await fetchEscalations();
         console.log("Escalations response:", res.data);
         const newEscalations = res.data?.issues || [];
+        const now = Date.now();
+        const activeIds = new Set(newEscalations.map((e) => e.id));
+
         setEscalations(newEscalations);
-        setApiErrors((prev) => ({ ...prev, escalations: null }));
-        // Trigger modal if new escalation exists
-        if (newEscalations.length > 0 && !selectedEscalation) {
-          setSelectedEscalation(newEscalations[0]);
+        setEscalationQueue((prev) => prev.filter((item) => activeIds.has(item.id)));
+
+        if (selectedEscalation && !activeIds.has(selectedEscalation.id)) {
+          setSelectedEscalation(null);
         }
+
+        const queueCandidates = newEscalations.filter((item) => {
+          if (!item.id) {
+            return false;
+          }
+          const dismissedUntil = dismissedUntilRef.current.get(item.id) || 0;
+          if (dismissedUntil > now) {
+            return false;
+          }
+          return !shownEscalationIdsRef.current.has(item.id);
+        });
+
+        if (queueCandidates.length > 0) {
+          setEscalationQueue((prev) => {
+            const existingIds = new Set(prev.map((item) => item.id));
+            const additions = queueCandidates.filter((item) => !existingIds.has(item.id));
+            return additions.length ? [...prev, ...additions] : prev;
+          });
+        }
+
+        setApiErrors((prev) => ({ ...prev, escalations: null }));
       } catch (err) {
         console.error("Escalations fetch error:", err.message);
         setApiErrors((prev) => ({ ...prev, escalations: err.message }));
@@ -115,7 +172,7 @@ export default function App() {
     pollEscalations();
     const interval = setInterval(pollEscalations, 5000);
     return () => clearInterval(interval);
-  }, [selectedEscalation]);
+  }, [selectedEscalation, ENABLE_ESCALATION]);
 
   // Poll stall patterns every 10s
   useEffect(() => {
@@ -166,14 +223,45 @@ export default function App() {
   const handleMarkResolved = async (escalationId) => {
     try {
       await markEscalationResolved(escalationId);
-      setEscalations((prev) =>
-        prev.filter((e) => e.workflow_id !== escalationId),
-      );
+      setEscalations((prev) => prev.filter((e) => e.id !== escalationId));
+      setEscalationQueue((prev) => prev.filter((e) => e.id !== escalationId));
+      dismissedUntilRef.current.delete(escalationId);
       setSelectedEscalation(null);
       addToast("Escalation marked as reviewed", "success");
     } catch (err) {
       addToast(`Error: ${err.message}`, "error");
     }
+  };
+
+  const handleEscalationClose = () => {
+    if (!selectedEscalation) {
+      return;
+    }
+    const escalationId = selectedEscalation.id;
+    dismissedUntilRef.current.set(
+      escalationId,
+      Date.now() + ESCALATION_COOLDOWN_MS,
+    );
+    setTimeout(() => {
+      shownEscalationIdsRef.current.delete(escalationId);
+    }, ESCALATION_COOLDOWN_MS);
+    setSelectedEscalation(null);
+  };
+
+  const handleEscalationSnooze = () => {
+    if (!selectedEscalation) {
+      return;
+    }
+    const escalationId = selectedEscalation.id;
+    dismissedUntilRef.current.set(
+      escalationId,
+      Date.now() + ESCALATION_SNOOZE_MS,
+    );
+    setTimeout(() => {
+      shownEscalationIdsRef.current.delete(escalationId);
+    }, ESCALATION_SNOOZE_MS);
+    setSelectedEscalation(null);
+    addToast("Escalation snoozed for 5 minutes", "info");
   };
 
   return (
@@ -239,13 +327,12 @@ export default function App() {
       </div>
 
       {/* Escalation Modal */}
-      {selectedEscalation && (
+      {ENABLE_ESCALATION && selectedEscalation && (
         <EscalationPreview
           escalation={selectedEscalation}
-          onMarkResolved={() =>
-            handleMarkResolved(selectedEscalation.workflow_id)
-          }
-          onClose={() => setSelectedEscalation(null)}
+          onMarkResolved={() => handleMarkResolved(selectedEscalation.id)}
+          onSnooze={handleEscalationSnooze}
+          onClose={handleEscalationClose}
         />
       )}
 

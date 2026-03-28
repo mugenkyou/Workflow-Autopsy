@@ -15,6 +15,7 @@ import AuditTrail from "./components/AuditTrail";
 import EscalationPreview from "./components/EscalationPreview";
 import IssueDetails from "./components/IssueDetails";
 import SolvedIssues from "./components/SolvedIssues";
+import SolvedIssueDetails from "./components/SolvedIssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
@@ -29,6 +30,7 @@ export default function App() {
   const [activeIssues, setActiveIssues] = useState([]);
   const [solvedIssues, setSolvedIssues] = useState([]);
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [selectedSolvedIssue, setSelectedSolvedIssue] = useState(null);
   const [escalations, setEscalations] = useState([]);
   const [escalationQueue, setEscalationQueue] = useState([]);
   const [stallPatterns, setStallPatterns] = useState([]);
@@ -323,6 +325,10 @@ export default function App() {
     setSelectedIssue(issue);
   };
 
+  const handleSolvedIssueClick = (issue) => {
+    setSelectedSolvedIssue(issue);
+  };
+
   const selectedWorkflow = selectedIssue
     ? workflows.find((wf) => wf.id === selectedIssue.workflow_id) || null
     : null;
@@ -401,7 +407,7 @@ export default function App() {
         {/* Middle: Active + Solved Issues */}
         <div className="middle-panel">
           <RiskQueue issues={activeIssues} onIssueClick={handleIssueClick} />
-          <SolvedIssues issues={solvedIssues} />
+          <SolvedIssues issues={solvedIssues} onIssueClick={handleSolvedIssueClick} />
         </div>
 
         {/* Right: Audit Trail */}
@@ -432,6 +438,13 @@ export default function App() {
           auditEntry={selectedIssueAuditEntry}
           isStillActive={selectedIssueStillActive}
           onClose={() => setSelectedIssue(null)}
+        />
+      )}
+
+      {selectedSolvedIssue && (
+        <SolvedIssueDetails
+          issue={selectedSolvedIssue}
+          onClose={() => setSelectedSolvedIssue(null)}
         />
       )}
 

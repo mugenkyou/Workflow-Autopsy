@@ -9,35 +9,39 @@ A multi-agent system for detecting, diagnosing, and resolving stalled purchase o
 ## System Architecture
 
 ### Backend (FastAPI + LangGraph)
+
 - **Port**: 8000 (localhost)
 - **Database**: SQLite with 15 workflows
 - **Agents**: Monitor → Diagnosis → Action → Audit (autonomous 4-agent pipeline)
 - **Model**: Ollama mistral (local inference, no cloud calls)
 
 ### Frontend (React + Vite)
+
 - **Port**: 5175 (or next available)
 - **Components**: WorkflowHeatmap, RiskQueue, AuditTrail, EscalationPreview, StallInsights
 - **Polling**: 3-10s intervals for real-time updates
 - **Status**: ✓ Fully functional
 
 ### Key Endpoints (All Operational ✓)
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health` | GET | System health check |
-| `/workflows` | GET | All 15 workflows with current steps |
-| `/active-issues` | GET | Risk-ranked issues (highest first) |
-| `/audit-log` | GET | Agent action history (last 50) |
-| `/escalations` | GET | Unresolved escalations for human review |
-| `/stall-patterns` | GET | Learned bottleneck patterns |
-| `/inject-chaos` | POST | Inject 3 random failures for demo |
-| `/run-cycle` | POST | Execute one agent cycle manually |
-| `/mark-resolved` | POST | Mark escalation as reviewed |
+
+| Endpoint          | Method | Purpose                                 |
+| ----------------- | ------ | --------------------------------------- |
+| `/health`         | GET    | System health check                     |
+| `/workflows`      | GET    | All 15 workflows with current steps     |
+| `/active-issues`  | GET    | Risk-ranked issues (highest first)      |
+| `/audit-log`      | GET    | Agent action history (last 50)          |
+| `/escalations`    | GET    | Unresolved escalations for human review |
+| `/stall-patterns` | GET    | Learned bottleneck patterns             |
+| `/inject-chaos`   | POST   | Inject 3 random failures for demo       |
+| `/run-cycle`      | POST   | Execute one agent cycle manually        |
+| `/mark-resolved`  | POST   | Mark escalation as reviewed             |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - Python 3.x (Anaconda recommended)
 - Node.js + npm
 - Ollama running locally with `mistral` model
@@ -62,6 +66,7 @@ python -m uvicorn main:app --host localhost --port 8000
 ```
 
 Backend will:
+
 - Initialize SQLite database (`autopsy.db`)
 - Seed 15 workflows
 - Repair state invariants
@@ -87,24 +92,28 @@ npm run dev
 ## System Demo
 
 ### 1. Dashboard (Default State)
+
 - **WorkflowHeatmap**: 15 workflow cards (color-coded by status: green=on_track, amber=at_risk, red=breached/stalled)
 - **RiskQueue**: Empty (no active issues yet)
 - **AuditTrail**: Shows initialization events
 - **StallInsights**: Empty (no patterns learned yet)
 
 ### 2. Inject Failures (Click "⚡ Break It")
+
 ```bash
 # Or via API:
 curl -X POST http://localhost:8000/inject-chaos
 ```
 
 **What happens:**
+
 - 3 random failures injected (stall, duplicate, sla_breach)
 - Failures visible in RiskQueue within seconds
 - Heatmap updates to show affected workflows
 - Audit trail logs injection event
 
 ### 3. Auto-Resolution (~30s)
+
 - Agents detect failures
 - DiagnosisAgent classifies root cause
 - ActionAgent proposes resolution
@@ -113,6 +122,7 @@ curl -X POST http://localhost:8000/inject-chaos
 - Metrics accumulate in StallInsights
 
 ### 4. Human Escalations
+
 - Critical issues escalate to EscalationPreview
 - Human reviews and marks resolved
 - System learns from decisions
@@ -122,6 +132,7 @@ curl -X POST http://localhost:8000/inject-chaos
 ## Database Schema
 
 ### Tables
+
 - **workflows**: 15 PO workflows with vendor, amount, status
 - **steps**: 60+ process steps (Invoice, Approval, Payment, etc.)
 - **audit_log**: Agent actions, reasoning, confidence scores
@@ -129,6 +140,7 @@ curl -X POST http://localhost:8000/inject-chaos
 - **escalations**: Human-reviewed decisions
 
 ### State Invariants
+
 - ✓ Each workflow has exactly 1 active step
 - ✓ Steps have SLA (12-96 hours)
 - ✓ Overdue steps detected automatically
@@ -139,24 +151,28 @@ curl -X POST http://localhost:8000/inject-chaos
 ## Agents
 
 ### 1. Monitor Agent
+
 - Detects overdue in-progress steps
 - Classifies failure type (stall, duplicate, sla_breach)
 - Computes risk scores (hours_overdue × po_amount × 0.001)
 - Returns sorted list of issues
 
-### 2. Diagnosis Agent  
+### 2. Diagnosis Agent
+
 - Fine-tunes reasoning based on issue context
 - Adjusts confidence dynamically (0.6-0.9)
 - Generates explanation with variance
 - Selects override policy if appropriate
 
 ### 3. Action Agent
+
 - Implements escalation logic
 - Creates audit trail entry
 - Marks escalation in database
 - Logs reasoning and confidence
 
 ### 4. Audit Agent
+
 - Records all agent decisions
 - Stores confidence metrics
 - Enables process transparency
@@ -167,24 +183,28 @@ curl -X POST http://localhost:8000/inject-chaos
 ## API Examples
 
 ### Get All Workflows
+
 ```bash
 curl http://localhost:8000/workflows
 # Returns: [{ id, name, vendor, po_amount, status, current_step, ... }, ...]
 ```
 
 ### Get Active Issues (Risk-Ranked)
+
 ```bash
 curl http://localhost:8000/active-issues
 # Returns: { success, issues: [...], total_risk_exposure }
 ```
 
 ### Inject Chaos
+
 ```bash
 curl -X POST http://localhost:8000/inject-chaos
 # Returns: { success, message, failures_injected, audit_entries }
 ```
 
 ### Get Audit Log
+
 ```bash
 curl http://localhost:8000/audit-log
 # Returns: Last 50 agent actions with timestamps
@@ -195,6 +215,7 @@ curl http://localhost:8000/audit-log
 ## Troubleshooting
 
 ### Backend won't start
+
 ```bash
 # Check Python/dependencies
 python -c "import fastapi, uvicorn, langgraph, ollama"
@@ -207,12 +228,14 @@ taskkill /IM python.exe /F
 ```
 
 ### React app can't reach API
+
 - Verify backend is running: `curl http://localhost:8000/health`
 - Check API base URL in `frontend-react/src/api/client.js` points to `http://localhost:8000`
 - Check browser console for CORS errors
 - Verify firewall allows localhost:8000
 
 ### Database corruption
+
 ```bash
 # Delete bad database and let system recreate it
 rm backend/autopsy.db
@@ -220,6 +243,7 @@ rm backend/autopsy.db
 ```
 
 ### Ollama not responding
+
 ```bash
 # Verify ollama service
 ollama pull mistral
@@ -282,6 +306,7 @@ process-autopsy-agent/
 ## Testing
 
 ### Manual Test Flow
+
 1. Open `http://localhost:5175` in browser
 2. Verify dashboard loads with 15 workflow cards
 3. Click "⚡ Break It" button
@@ -291,6 +316,7 @@ process-autopsy-agent/
 7. Verify heatmap returns to original state
 
 ### API Test
+
 ```bash
 curl http://localhost:8000/health
 # {"status":"ok","model":"mistral"}

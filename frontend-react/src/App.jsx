@@ -6,6 +6,7 @@ import {
   fetchEscalations,
   fetchStallPatterns,
   injectChaos,
+  markEscalationResolved,
   runCycle,
 } from "./api/client";
 import WorkflowHeatmap from "./components/WorkflowHeatmap";

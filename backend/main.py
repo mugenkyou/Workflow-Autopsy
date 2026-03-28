@@ -69,6 +69,23 @@ class ActiveIssuesResponse(BaseModel):
     total_risk_exposure: float
 
 
+class EscalationItem(BaseModel):
+    id: str
+    workflow_id: str
+    step_id: str
+    step_name: str
+    assignee: str
+    failure_type: str
+    hours_overdue: float
+    risk_score: float
+
+
+class EscalationsResponse(BaseModel):
+    success: bool
+    issues: List[EscalationItem]
+    total_risk_exposure: float
+
+
 class InjectChaosResponse(BaseModel):
     success: bool
     message: str
@@ -445,7 +462,7 @@ def inject_chaos():
 # Escalations & Learning Endpoints (Phase 7)
 # ---------------------------------------------------------------------------
 
-@app.get("/escalations", response_model=ActiveIssuesResponse)
+@app.get("/escalations", response_model=EscalationsResponse)
 def get_escalations():
     """Get unresolved escalations for human review."""
     try:
@@ -466,7 +483,8 @@ def get_escalations():
         conn.close()
         
         issue_models = [
-            ActiveIssue(
+            EscalationItem(
+                id=row["id"],
                 workflow_id=row["workflow_id"],
                 step_id=row["step_id"],
                 step_name=row["step_name"],
@@ -480,7 +498,7 @@ def get_escalations():
         
         total_risk = sum(issue.risk_score for issue in issue_models)
         
-        return ActiveIssuesResponse(
+        return EscalationsResponse(
             success=True,
             issues=issue_models,
             total_risk_exposure=round(total_risk, 2),
@@ -488,7 +506,7 @@ def get_escalations():
     
     except Exception as e:
         print(f"Error fetching escalations: {e}")
-        return ActiveIssuesResponse(
+        return EscalationsResponse(
             success=False,
             issues=[],
             total_risk_exposure=0.0,
@@ -513,19 +531,31 @@ def mark_escalation_resolved(payload: MarkResolvedRequest):
         
         # Verify escalation exists
         esc = cursor.execute(
-            "SELECT id FROM escalations WHERE id = ?", (payload.escalation_id,)
+            "SELECT id, workflow_id, step_id FROM escalations WHERE id = ?", (payload.escalation_id,)
         ).fetchone()
         
         if not esc:
             conn.close()
             raise HTTPException(status_code=404, detail=f"Escalation {payload.escalation_id} not found")
         
-        # Mark as resolved
+        # Mark escalation as resolved
         now = datetime.utcnow().isoformat()
         cursor.execute(
             "UPDATE escalations SET resolved_at = ? WHERE id = ?",
             (now, payload.escalation_id),
         )
+        
+        # Also resolve the associated step and workflow so the monitor
+        # stops re-detecting them as active issues
+        cursor.execute(
+            "UPDATE steps SET status = 'completed', completed_at = ? WHERE id = ?",
+            (now, esc["step_id"]),
+        )
+        cursor.execute(
+            "UPDATE workflows SET status = 'on_track' WHERE id = ?",
+            (esc["workflow_id"],),
+        )
+        
         conn.commit()
         conn.close()
         

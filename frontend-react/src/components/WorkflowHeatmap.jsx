@@ -1,31 +1,31 @@
-import { useState } from 'react'
-import './WorkflowHeatmap.css'
+import { useState } from "react";
+import "./WorkflowHeatmap.css";
 
 export default function WorkflowHeatmap({ workflows, activeIssues }) {
-  const [selectedWorkflow, setSelectedWorkflow] = useState(null)
+  const [selectedWorkflow, setSelectedWorkflow] = useState(null);
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'on_track':
-        return '#10b981'
-      case 'at_risk':
-        return '#f59e0b'
-      case 'breached':
-        return '#ef4444'
-      case 'stalled':
-        return '#ef4444'
-      case 'completed':
-        return '#6b7280'
-      case 'duplicate_hold':
-        return '#f59e0b'
+      case "on_track":
+        return "#10b981";
+      case "at_risk":
+        return "#f59e0b";
+      case "breached":
+        return "#ef4444";
+      case "stalled":
+        return "#ef4444";
+      case "completed":
+        return "#6b7280";
+      case "duplicate_hold":
+        return "#f59e0b";
       default:
-        return '#6b7280'
+        return "#6b7280";
     }
-  }
+  };
 
   const hasActiveIssue = (workflowId) => {
-    return activeIssues.some(issue => issue.workflow_id === workflowId)
-  }
+    return activeIssues.some((issue) => issue.workflow_id === workflowId);
+  };
 
   return (
     <div className="heatmap-container">
@@ -34,15 +34,18 @@ export default function WorkflowHeatmap({ workflows, activeIssues }) {
         {workflows.length === 0 ? (
           <p className="empty-state">No workflows loaded</p>
         ) : (
-          workflows.map(workflow => (
+          workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className={`workflow-card ${hasActiveIssue(workflow.id) ? 'has-issue' : ''}`}
+              className={`workflow-card ${hasActiveIssue(workflow.id) ? "has-issue" : ""}`}
               style={{ borderLeftColor: getStatusColor(workflow.status) }}
               onClick={() => setSelectedWorkflow(workflow)}
             >
               <div className="card-header">
-                <span className="status-badge" style={{ background: getStatusColor(workflow.status) }}>
+                <span
+                  className="status-badge"
+                  style={{ background: getStatusColor(workflow.status) }}
+                >
                   {workflow.status}
                 </span>
               </div>
@@ -52,7 +55,9 @@ export default function WorkflowHeatmap({ workflows, activeIssues }) {
                 <p className="amount">₹{workflow.po_amount.toFixed(0)}</p>
               </div>
               <div className="card-footer">
-                <span className="step-name">{workflow.current_step?.step_name}</span>
+                <span className="step-name">
+                  {workflow.current_step?.step_name}
+                </span>
               </div>
             </div>
           ))
@@ -60,19 +65,41 @@ export default function WorkflowHeatmap({ workflows, activeIssues }) {
       </div>
 
       {selectedWorkflow && (
-        <div className="workflow-detail-modal" onClick={() => setSelectedWorkflow(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setSelectedWorkflow(null)}>×</button>
+        <div
+          className="workflow-detail-modal"
+          onClick={() => setSelectedWorkflow(null)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="close-btn"
+              onClick={() => setSelectedWorkflow(null)}
+            >
+              ×
+            </button>
             <h3>{selectedWorkflow.name}</h3>
-            <p><strong>Vendor:</strong> {selectedWorkflow.vendor}</p>
-            <p><strong>Amount:</strong> ₹{selectedWorkflow.po_amount}</p>
-            <p><strong>Status:</strong> {selectedWorkflow.status}</p>
-            <p><strong>Current Step:</strong> {selectedWorkflow.current_step?.step_name}</p>
-            <p><strong>Assignee:</strong> {selectedWorkflow.current_step?.assignee}</p>
-            <p><strong>Created:</strong> {selectedWorkflow.created_at}</p>
+            <p>
+              <strong>Vendor:</strong> {selectedWorkflow.vendor}
+            </p>
+            <p>
+              <strong>Amount:</strong> ₹{selectedWorkflow.po_amount}
+            </p>
+            <p>
+              <strong>Status:</strong> {selectedWorkflow.status}
+            </p>
+            <p>
+              <strong>Current Step:</strong>{" "}
+              {selectedWorkflow.current_step?.step_name}
+            </p>
+            <p>
+              <strong>Assignee:</strong>{" "}
+              {selectedWorkflow.current_step?.assignee}
+            </p>
+            <p>
+              <strong>Created:</strong> {selectedWorkflow.created_at}
+            </p>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

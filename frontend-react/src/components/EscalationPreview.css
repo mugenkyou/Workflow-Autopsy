@@ -147,7 +147,7 @@
   font-size: 0.95rem;
 }
 
-.agent-attempts li:nth-child(-n+3) {
+.agent-attempts li:nth-child(-n + 3) {
   color: #10b981;
 }
 

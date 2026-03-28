@@ -90,6 +90,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+# Auto-reload trigger 
 
 app.add_middleware(
     CORSMiddleware,
@@ -128,7 +129,7 @@ def get_workflows():
     for wf in workflows:
         active_count = cursor.execute(
             "SELECT COUNT(*) FROM steps "
-            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN ('in_progress','stalled','breached')",
+            "WHERE workflow_id = ? AND completed_at IS NULL AND status IN ('in_progress','stalled','breached','escalated')",
             (wf["id"],),
         ).fetchone()[0]
         if active_count != 1:
@@ -142,7 +143,7 @@ def get_workflows():
         step_row = cursor.execute(
             "SELECT id, step_name, assignee, status FROM steps "
             "WHERE workflow_id = ? AND completed_at IS NULL "
-            "AND status IN ('in_progress','stalled','breached') "
+            "AND status IN ('in_progress','stalled','breached','escalated') "
             "ORDER BY datetime(started_at) DESC, rowid DESC LIMIT 1",
             (wf["id"],),
         ).fetchone()

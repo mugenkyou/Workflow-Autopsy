@@ -70,12 +70,14 @@ frontend/index.html
 ```
 
 Or open directly in your browser:
+
 ```
 file:///path/to/process-autopsy-agent/frontend/index.html
 ```
 
 **Dashboard features:**
-- **Workflow Heatmap** (left 60%): 
+
+- **Workflow Heatmap** (left 60%):
   - Responsive grid of all 15 workflows (3 cols desktop, 2 tablet, 1 mobile)
   - Color-coded status badges (green=on_track, amber=at_risk, red=stalled/breached)
   - Left border indicator for risk levels
@@ -92,7 +94,7 @@ file:///path/to/process-autopsy-agent/frontend/index.html
   - Recent audit history for that workflow
   - Smooth animations, click X or outside to close
 
-- **Auto-polling**: 
+- **Auto-polling**:
   - Audit log every 3 seconds
   - Workflows every 5 seconds
   - Autonomous cycle every 30 seconds

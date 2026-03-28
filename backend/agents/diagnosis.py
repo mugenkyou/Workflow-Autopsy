@@ -213,11 +213,27 @@ class DiagnosisAgent:
             f"{rules}{reasoning_format}{json_format}"
         )
 
-    def _fallback(self) -> dict[str, Any]:
+    def _fallback(self, issue: dict[str, Any]) -> dict[str, Any]:
+        step_name = str(issue.get("step_name", "")).lower()
+        failure_type = str(issue.get("failure_type", "")).lower()
+
+        if "duplicate" in failure_type:
+            stall_type = "duplicate_invoice"
+            reasoning = "The issue aligns with duplicate invoice indicators, so it is classified as duplicate validation failure."
+        elif "approval" in step_name:
+            stall_type = "wrong_approver"
+            reasoning = "The delay pattern in an approval step suggests routing to an incorrect approver chain."
+        elif "payment" in step_name:
+            stall_type = "missing_data"
+            reasoning = "Payment progression is blocked by missing settlement metadata or supporting documents."
+        else:
+            stall_type = "external_hold"
+            reasoning = "Delay with no clear internal blocker suggests an external dependency is holding completion."
+
         return {
-            "stall_type": "external_hold",
+            "stall_type": stall_type,
             "confidence": 0.5,
-            "reasoning": "Default fallback due to classification failure",
+            "reasoning": reasoning,
         }
 
     @staticmethod
@@ -241,12 +257,6 @@ class DiagnosisAgent:
     def run(self, issue: dict[str, Any]) -> dict[str, Any]:
         workflow_id = str(issue.get("workflow_id", ""))
         step_id = str(issue.get("step_id", ""))
-
-        # Check for cached diagnosis first
-        cached = self._check_cached_diagnosis(workflow_id, step_id)
-        if cached:
-            print(f"[DIAGNOSIS] Using cached diagnosis for {workflow_id}/{step_id}", file=__import__('sys').stderr)
-            return cached
 
         pattern_summary = self._load_pattern_summary(str(issue.get("assignee", "")))
 
@@ -298,5 +308,5 @@ class DiagnosisAgent:
                 print(f"[DIAGNOSIS] Attempt {attempt} failed: {type(e).__name__}: {str(e)[:60]}", file=__import__('sys').stderr)
                 continue
 
-        print(f"[DIAGNOSIS] All retries exhausted for {workflow_id}/{step_id}, using fallback", file=__import__('sys').stderr)
-        return self._fallback()
+        print(f"[DIAGNOSIS] All retries exhausted for {workflow_id}/{step_id}, using deterministic fallback", file=__import__('sys').stderr)
+        return self._fallback(issue)

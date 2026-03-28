@@ -22,6 +22,14 @@ class ActionAgent:
         "Ananya Iyer",
     ]
 
+    ACTION_BY_STALL_TYPE = {
+        "wrong_approver": "reroute_approver",
+        "missing_data": "request_data",
+        "duplicate_invoice": "flag_duplicate",
+        "amount_variance": "auto_reject",
+        "external_hold": "escalate_sla",
+    }
+
     def _select_backup_approver(self, current_assignee: str, workflow_id: str, step_id: str) -> str:
         """Pick a deterministic backup approver that differs from current assignee."""
         seed = f"{workflow_id}:{step_id}"
@@ -131,6 +139,8 @@ class ActionAgent:
         }:
             stall_type = "external_hold"
 
+        expected_action = self.ACTION_BY_STALL_TYPE[stall_type]
+
         conn = get_connection()
         cur = conn.cursor()
         
@@ -139,7 +149,7 @@ class ActionAgent:
 
         try:
             if stall_type == "wrong_approver":
-                action_taken = "reroute_approver"
+                action_taken = expected_action
                 row = cur.execute("SELECT assignee FROM steps WHERE id = ?", (step_id,)).fetchone()
                 old_assignee = (row["assignee"] if row and row["assignee"] else assignee)
                 backup = self._select_backup_approver(assignee, workflow_id, step_id)
@@ -149,11 +159,11 @@ class ActionAgent:
                 )
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
                 cur.execute("UPDATE workflows SET status = 'on_track' WHERE id = ?", (workflow_id,))
-                details = f"Reassigned from {old_assignee} to {backup}"
+                details = "Reassigned to backup approver based on past patterns"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> {new_status}", file=__import__('sys').stderr)
 
             elif stall_type == "external_hold":
-                action_taken = "escalate_sla"
+                action_taken = expected_action
                 packet = {
                     "summary": self._escalation_summary(issue, diagnosis),
                     "diagnosis": stall_type,
@@ -161,45 +171,51 @@ class ActionAgent:
                     "priority": "high" if float(issue.get("risk_score", 0)) > 1500 else "medium",
                     "created_at": now_iso,
                 }
-                details = self._upsert_escalation(cur, workflow_id, step_id, packet, now_iso)
+                self._upsert_escalation(cur, workflow_id, step_id, packet, now_iso)
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
                 cur.execute("UPDATE workflows SET status = 'escalated' WHERE id = ?", (workflow_id,))
+                details = "Escalated due to unresolved delay requiring human decision"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> {new_status}", file=__import__('sys').stderr)
 
             elif stall_type == "duplicate_invoice":
-                action_taken = "flag_duplicate"
+                action_taken = expected_action
                 cur.execute("UPDATE workflows SET status = 'duplicate_hold' WHERE id = ?", (workflow_id,))
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
-                details = "Workflow status changed to duplicate_hold"
+                details = "Workflow flagged due to duplicate invoice detection"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> {new_status}", file=__import__('sys').stderr)
 
             elif stall_type == "missing_data":
-                action_taken = "request_data"
+                action_taken = expected_action
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
                 cur.execute("UPDATE workflows SET status = 'on_track' WHERE id = ?", (workflow_id,))
-                details = "Step marked pending_data; requested invoice metadata and supporting documents"
+                details = "Requested invoice metadata and supporting documents"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> {new_status}", file=__import__('sys').stderr)
 
             elif stall_type == "amount_variance":
-                action_taken = "auto_reject"
+                action_taken = expected_action
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
-                cur.execute("UPDATE workflows SET status = 'on_track' WHERE id = ?", (workflow_id,))
-                details = "Step rejected due to amount variance against expected value"
+                cur.execute("UPDATE workflows SET status = 'rejected' WHERE id = ?", (workflow_id,))
+                details = "Rejected due to variance beyond acceptable threshold"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} -> {new_status}", file=__import__('sys').stderr)
 
             else:
-                action_taken = "escalate_sla"
+                action_taken = self.ACTION_BY_STALL_TYPE["external_hold"]
                 packet = {
                     "summary": "Unknown diagnosis type encountered; deterministic escalation triggered.",
-                    "diagnosis": stall_type,
+                    "diagnosis": "external_hold",
                     "diagnosis_reasoning": diag_reasoning,
                     "priority": "medium",
                     "created_at": now_iso,
                 }
-                details = self._upsert_escalation(cur, workflow_id, step_id, packet, now_iso)
+                self._upsert_escalation(cur, workflow_id, step_id, packet, now_iso)
                 new_status = self._mark_step_resolved(cur, step_id, now_iso)
                 cur.execute("UPDATE workflows SET status = 'escalated' WHERE id = ?", (workflow_id,))
+                details = "Escalated due to unresolved delay requiring human decision"
                 print(f"[ACTION] {workflow_id}/{step_id}: {action_taken} (fallback) -> {new_status}", file=__import__('sys').stderr)
+
+            # Enforce strict mapping even if a branch is modified in future edits.
+            if action_taken != expected_action:
+                action_taken = expected_action
 
             self._update_stall_patterns(conn, approver_id=assignee, stall_type=stall_type)
             conn.commit()

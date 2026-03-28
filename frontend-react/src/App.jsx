@@ -13,6 +13,7 @@ import WorkflowHeatmap from "./components/WorkflowHeatmap";
 import RiskQueue from "./components/RiskQueue";
 import AuditTrail from "./components/AuditTrail";
 import EscalationPreview from "./components/EscalationPreview";
+import IssueDetails from "./components/IssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
@@ -25,6 +26,7 @@ export default function App() {
   const [workflows, setWorkflows] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [activeIssues, setActiveIssues] = useState([]);
+  const [selectedIssue, setSelectedIssue] = useState(null);
   const [escalations, setEscalations] = useState([]);
   const [escalationQueue, setEscalationQueue] = useState([]);
   const [stallPatterns, setStallPatterns] = useState([]);
@@ -264,6 +266,30 @@ export default function App() {
     addToast("Escalation snoozed for 5 minutes", "info");
   };
 
+  const handleIssueClick = (issue) => {
+    setSelectedIssue(issue);
+  };
+
+  const selectedWorkflow = selectedIssue
+    ? workflows.find((wf) => wf.id === selectedIssue.workflow_id) || null
+    : null;
+
+  const selectedIssueAuditEntry = selectedIssue
+    ? auditLog.find(
+        (entry) =>
+          entry.workflow_id === selectedIssue.workflow_id &&
+          entry.step_id === selectedIssue.step_id,
+      ) || null
+    : null;
+
+  const selectedIssueStillActive = selectedIssue
+    ? activeIssues.some(
+        (issue) =>
+          issue.workflow_id === selectedIssue.workflow_id &&
+          issue.step_id === selectedIssue.step_id,
+      )
+    : false;
+
   return (
     <div className="app">
       {/* Header */}
@@ -316,7 +342,7 @@ export default function App() {
 
         {/* Middle: Active Issues */}
         <div className="middle-panel">
-          <RiskQueue issues={activeIssues} />
+          <RiskQueue issues={activeIssues} onIssueClick={handleIssueClick} />
         </div>
 
         {/* Right: Audit Trail */}
@@ -337,6 +363,16 @@ export default function App() {
           onMarkResolved={() => handleMarkResolved(selectedEscalation.id)}
           onSnooze={handleEscalationSnooze}
           onClose={handleEscalationClose}
+        />
+      )}
+
+      {selectedIssue && (
+        <IssueDetails
+          issue={selectedIssue}
+          workflow={selectedWorkflow}
+          auditEntry={selectedIssueAuditEntry}
+          isStillActive={selectedIssueStillActive}
+          onClose={() => setSelectedIssue(null)}
         />
       )}
 

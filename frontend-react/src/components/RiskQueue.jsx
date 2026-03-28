@@ -1,6 +1,6 @@
 import "./RiskQueue.css";
 
-export default function RiskQueue({ issues }) {
+export default function RiskQueue({ issues, onIssueClick }) {
   const getFailureColor = (type) => {
     switch (type) {
       case "stall":
@@ -44,6 +44,15 @@ export default function RiskQueue({ issues }) {
               key={`${issue.workflow_id}-${idx}`}
               className="issue-item"
               style={{ borderLeftColor: getFailureColor(issue.failure_type) }}
+              onClick={() => onIssueClick?.(issue)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onIssueClick?.(issue);
+                }
+              }}
             >
               <div className="issue-header">
                 <span

@@ -1,0 +1,149 @@
+.issue-details {
+  position: fixed;
+  top: 90px;
+  right: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  background: linear-gradient(160deg, #171f3f 0%, #1f2747 100%);
+  border: 1px solid #324066;
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+  z-index: 11000;
+  animation: issueDrawerIn 0.24s ease-out;
+}
+
+@keyframes issueDrawerIn {
+  from {
+    transform: translateX(26px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.issue-details-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid #2e3a5c;
+  position: sticky;
+  top: 0;
+  background: rgba(23, 31, 63, 0.98);
+  backdrop-filter: blur(6px);
+}
+
+.issue-details-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #f3f4f6;
+}
+
+.issue-details-header p {
+  margin: 0.3rem 0 0;
+  color: #9aa5c3;
+  font-size: 0.82rem;
+}
+
+.issue-details-close {
+  border: none;
+  background: transparent;
+  color: #b8c0d8;
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.issue-details-close:hover {
+  color: #ffffff;
+}
+
+.issue-section {
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid #2b3555;
+}
+
+.issue-section h4 {
+  margin: 0 0 0.7rem;
+  font-size: 0.9rem;
+  color: #d7def2;
+}
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.kv-grid.single {
+  grid-template-columns: 1fr;
+}
+
+.k {
+  display: block;
+  font-size: 0.72rem;
+  color: #97a3c5;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.v {
+  color: #f5f7ff;
+  font-size: 0.88rem;
+}
+
+.v.block {
+  display: block;
+  line-height: 1.4;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.timeline-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 0.28rem;
+  border-radius: 999px;
+  background: #60a5fa;
+  flex: 0 0 10px;
+}
+
+.timeline-label {
+  color: #e5e9f7;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.timeline-detail {
+  color: #c6cee5;
+  font-size: 0.8rem;
+}
+
+.timeline-time {
+  color: #95a2c7;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 900px) {
+  .issue-details {
+    top: 70px;
+    right: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 90px);
+  }
+}

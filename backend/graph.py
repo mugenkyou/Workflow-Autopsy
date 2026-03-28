@@ -174,7 +174,7 @@ def _route_after_monitor(state: AgentState) -> str:
     issues_remaining = len(state.get("issues", []))
     if issues_remaining:
         print(f"[ROUTE] {issues_remaining} issues remaining, continue processing", file=sys.stderr)
-        return "diagnosis"
+        return "diagnose_step"
     else:
         print(f"[ROUTE] No issues remaining, END cycle", file=sys.stderr)
         return END
@@ -186,7 +186,7 @@ def _route_after_audit(state: AgentState) -> str:
     
     if issues_remaining:
         print(f"[ROUTE] {processed_count} processed, {issues_remaining} remaining, continue", file=sys.stderr)
-        return "diagnosis"
+        return "diagnose_step"
     else:
         print(f"[ROUTE] CYCLE COMPLETE: {processed_count} issues processed", file=sys.stderr)
         return END
@@ -195,16 +195,24 @@ def _route_after_audit(state: AgentState) -> str:
 def _build_graph():
     graph = StateGraph(AgentState)
 
-    graph.add_node("monitor", monitor_node)
-    graph.add_node("diagnosis", diagnosis_node)
-    graph.add_node("action", action_node)
-    graph.add_node("audit", audit_node)
+    graph.add_node("monitor_step", monitor_node)
+    graph.add_node("diagnose_step", diagnosis_node)
+    graph.add_node("action_step", action_node)
+    graph.add_node("audit_step", audit_node)
 
-    graph.set_entry_point("monitor")
-    graph.add_conditional_edges("monitor", _route_after_monitor, {"diagnosis": "diagnosis", END: END})
-    graph.add_edge("diagnosis", "action")
-    graph.add_edge("action", "audit")
-    graph.add_conditional_edges("audit", _route_after_audit, {"diagnosis": "diagnosis", END: END})
+    graph.set_entry_point("monitor_step")
+    graph.add_conditional_edges(
+        "monitor_step",
+        _route_after_monitor,
+        {"diagnose_step": "diagnose_step", END: END},
+    )
+    graph.add_edge("diagnose_step", "action_step")
+    graph.add_edge("action_step", "audit_step")
+    graph.add_conditional_edges(
+        "audit_step",
+        _route_after_audit,
+        {"diagnose_step": "diagnose_step", END: END},
+    )
 
     return graph.compile()
 

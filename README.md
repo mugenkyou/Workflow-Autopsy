@@ -1,8 +1,8 @@
-# Process Autopsy Agent — Phase 7.5 ✓ STABLE
+# Process Autopsy Agent ✓
 
-**Full System Stabilization Complete — 2026-03-28**
+**Real-time Multi-Agent Workflow Management System**
 
-A multi-agent system for detecting, diagnosing, and resolving stalled purchase order workflows in real-time. Built with **FastAPI**, **LangGraph**, **React/Vite**, and local **Ollama** (mistral).
+A multi-agent system for detecting, diagnosing, and automatically resolving stalled purchase order workflows. Built with **FastAPI**, **LangGraph**, **React/Vite**, and local **Ollama** (mistral).
 
 ---
 
@@ -40,6 +40,7 @@ Detailed diagrams:
 | `/inject-chaos`   | POST   | Inject 3 random failures for demo       |
 | `/run-cycle`      | POST   | Execute one agent cycle manually        |
 | `/mark-resolved`  | POST   | Mark escalation as reviewed             |
+| `/stop-agent`     | POST   | Stop agent processing                   |
 
 ---
 
@@ -116,21 +117,29 @@ curl -X POST http://localhost:8000/inject-chaos
 - Failures visible in RiskQueue within seconds
 - Heatmap updates to show affected workflows
 - Audit trail logs injection event
+- Break It button becomes disabled until all injected issues are resolved
 
 ### 3. Auto-Resolution (~30s)
 
 - Agents detect failures
-- DiagnosisAgent classifies root cause
+- DiagnosisAgent classifies root cause (cached from previous analysis if applicable)
 - ActionAgent proposes resolution
 - AuditAgent logs decision
-- Issues resolve gracefully
+- Issues resolve gracefully and move to Solved Issues section
+- Solved items show resolution summary when clicked
 - Metrics accumulate in StallInsights
 
-### 4. Human Escalations
+### 4. Solved Issues Tracking
 
-- Critical issues escalate to EscalationPreview
-- Human reviews and marks resolved
-- System learns from decisions
+- Completed issues appear in "Solved Issues" panel
+- Click any solved issue to view resolution details
+- List clears when next "Break It" is triggered
+
+### 5. Agent Control
+
+- Use **⚡ Break It** to inject test failures
+- Use **◼ Stop Agent** to halt processing
+- Status chip shows "Agent resolving issues..." during active resolution
 
 ---
 
@@ -285,19 +294,20 @@ process-autopsy-agent/
 
 ---
 
-## Recent Changes (Phase 7.5)
+## Key Features
 
-✓ **Fixed /workflows endpoint** — Now gracefully handles DB state variations
-✓ **Removed legacy HTML frontend** — Eliminated duplicate UI system
-✓ **Verified all endpoints** — All 8 endpoints return 200 OK
-✓ **Stabilized backend** — Smooth 30-second cycle with visible demo flow
-✓ **React app functional** — Real-time polling on all panels
-✓ **Database clean state** — 15 workflows, 15 active steps, proper invariants
-✓ **Updated requirements.txt** — Pinned versions for reproducibility
+✓ **Real-time Workflow Monitoring** — Detects stalled POs in seconds
+✓ **Autonomous Issue Resolution** — 4-agent pipeline with local LLM analysis
+✓ **Demo Mode** — Clean startup with controlled chaos injection
+✓ **Solved Issues Tracking** — View and manage completed resolutions
+✓ **Performance Optimized** — Cached diagnosis, reduced polling, minimal LLM calls
+✓ **Break It Lock** — Prevents duplicate injections during resolution
+✓ **Issue Details Panel** — Click-to-view resolution explanations
+✓ **Agent Control** — Start/stop agent processing on demand
 
 ---
 
-## Next Steps (Phase 8+)
+## Next Steps
 
 - [ ] Add user authentication/session management
 - [ ] Implement persistent decision logging for ML training

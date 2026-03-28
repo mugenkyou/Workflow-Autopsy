@@ -44,16 +44,37 @@
   font-size: 0.95rem;
 }
 
+.problem-description {
+  color: #e5e7eb;
+  font-size: 0.86rem;
+  margin-top: 0.28rem;
+  line-height: 1.35;
+}
+
 .condition {
   color: #9ca3af;
   font-size: 0.85rem;
-  margin-top: 0.25rem;
+  margin-top: 0.28rem;
 }
 
-.sample-count {
-  color: #6b7280;
+.frequency {
+  color: #bcc5d4;
   font-size: 0.8rem;
-  margin-top: 0.25rem;
+  margin-top: 0.28rem;
+  line-height: 1.35;
+}
+
+.system-response {
+  margin-top: 0.35rem;
+  color: #dbeafe;
+  font-size: 0.81rem;
+  line-height: 1.38;
+}
+
+.system-response .arrow {
+  color: #93c5fd;
+  font-weight: 700;
+  margin-right: 0.3rem;
 }
 
 .pattern-metric {
@@ -79,9 +100,11 @@
 
 .rate-label {
   font-weight: 700;
-  font-size: 0.85rem;
-  min-width: 40px;
+  font-size: 0.78rem;
+  min-width: 44px;
   text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .empty-patterns {

@@ -139,6 +139,27 @@
   font-size: 0.74rem;
 }
 
+.learning-applied {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid #324066;
+  border-radius: 8px;
+  background: rgba(30, 41, 75, 0.45);
+}
+
+.learning-applied p {
+  margin: 0;
+  color: #dbe7ff;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.learning-applied-empty p {
+  color: #b8c0d8;
+}
+
 @media (max-width: 900px) {
   .issue-details {
     top: 70px;

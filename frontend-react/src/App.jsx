@@ -513,6 +513,7 @@ export default function App() {
           issue={selectedIssue}
           workflow={selectedWorkflow}
           auditEntry={selectedIssueAuditEntry}
+          stallPatterns={stallPatterns}
           isStillActive={selectedIssueStillActive}
           onClose={() => setSelectedIssue(null)}
         />

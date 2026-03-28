@@ -17,10 +17,25 @@ function formatTime(ts) {
   return d.toLocaleString();
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function learningResponseForRate(stallRate) {
+  if (stallRate >= 0.7) {
+    return "System elevated this issue to high-priority routing and favored decisive intervention paths.";
+  }
+  if (stallRate >= 0.4) {
+    return "System increased monitoring weight and steered action toward bottleneck removal.";
+  }
+  return "System treated this as a weak prior and kept tighter observation during diagnosis/action.";
+}
+
 export default function IssueDetails({
   issue,
   workflow,
   auditEntry,
+  stallPatterns = [],
   isStillActive,
   onClose,
 }) {
@@ -36,6 +51,18 @@ export default function IssueDetails({
     typeof auditEntry?.confidence === "number"
       ? `${(auditEntry.confidence * 100).toFixed(0)}%`
       : "—";
+
+  const matchedPattern = stallPatterns.find(
+    (pattern) => normalizeText(pattern.approver_id) === normalizeText(issue.assignee),
+  );
+
+  const learningAppliedSummary = matchedPattern
+    ? `This issue matches past pattern for ${issue.assignee}: ${matchedPattern.condition}.`
+    : null;
+
+  const learningAppliedResponse = matchedPattern
+    ? learningResponseForRate(Number(matchedPattern.stall_rate) || 0)
+    : null;
 
   const timeline = [
     {
@@ -149,7 +176,24 @@ export default function IssueDetails({
       </section>
 
       <section className="issue-section">
-        <h4>5. Timeline</h4>
+        <h4>5. Learning Applied</h4>
+        {matchedPattern ? (
+          <div className="learning-applied">
+            <p>{learningAppliedSummary}</p>
+            <p>{learningAppliedResponse}</p>
+          </div>
+        ) : (
+          <div className="learning-applied learning-applied-empty">
+            <p>
+              No strong historical pattern found for this assignee yet. System
+              used standard diagnosis and action flow.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="issue-section">
+        <h4>6. Timeline</h4>
         <div className="timeline">
           {timeline.map((item, idx) => (
             <div key={`${item.label}-${idx}`} className="timeline-item">

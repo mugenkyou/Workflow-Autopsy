@@ -57,7 +57,9 @@ ollama run mistral
 - `GET /health`: service health status
 - `GET /workflows`: all workflows with current step
 - `GET /audit-log`: latest audit log records
+- `GET /active-issues`: all overdue issues ranked by risk_score (Phase 6)
 - `POST /inject-failure`: inject `stall`, `duplicate`, or `sla_breach`
+- `POST /inject-chaos`: inject 3 random failures and run cycle (Phase 6)
 - `POST /run-cycle`: execute one autonomous cycle and return audit entries
 
 ## Live Dashboard
@@ -75,7 +77,7 @@ Or open directly in your browser:
 file:///path/to/process-autopsy-agent/frontend/index.html
 ```
 
-**Dashboard features:**
+**Dashboard features (Phase 5 + Phase 6):**
 
 - **Workflow Heatmap** (left 60%):
   - Responsive grid of all 15 workflows (3 cols desktop, 2 tablet, 1 mobile)
@@ -86,7 +88,18 @@ file:///path/to/process-autopsy-agent/frontend/index.html
 
 - **Audit Trail** (right top): Complete audit log with agent badges, timestamps, confidence scores
 
-- **Agent Feed** (right bottom): Real-time stream of agent actions with LIVE indicator (green/gray pulsing)
+- **Risk Queue** (right bottom, Phase 6): 
+  - Active issues ranked by risk_score (highest ₹ first)
+  - Failure type badges (purple=stall, red=duplicate, amber=sla_breach)
+  - Risk background coloring (dark red >₹50k, orange >₹10k)
+  - Total exposure calculation
+  - Auto-resolves when agents fix issues
+
+- **Break It Button** (header, Phase 6):
+  - Click to inject 3 random failures
+  - Immediate autonomous cycle execution
+  - Toast notification feedback
+  - Real-time issue tracking in RiskQueue
 
 - **Detail Drawer** (slides from right):
   - Opens on clicking a workflow card
@@ -97,10 +110,11 @@ file:///path/to/process-autopsy-agent/frontend/index.html
 - **Auto-polling**:
   - Audit log every 3 seconds
   - Workflows every 5 seconds
-  - Autonomous cycle every 30 seconds
+  - Active issues every 5 seconds (Phase 6)
+  - Autonomous cycle every 30 seconds (triggered by Break It)
   - UI updates without page refresh
-- **Auto-cycle**: Runs autonomous cycle every 30 seconds
-- Responsive dark-themed UI built with React (CDN) + Tailwind
+
+- **Responsive dark-themed UI** built with React (CDN) + inline styles (no Tailwind dependency)
 
 ## Run Autonomous Cycle
 

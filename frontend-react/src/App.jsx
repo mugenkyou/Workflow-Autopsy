@@ -14,6 +14,7 @@ import RiskQueue from "./components/RiskQueue";
 import AuditTrail from "./components/AuditTrail";
 import EscalationPreview from "./components/EscalationPreview";
 import IssueDetails from "./components/IssueDetails";
+import SolvedIssues from "./components/SolvedIssues";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
@@ -26,16 +27,21 @@ export default function App() {
   const [workflows, setWorkflows] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [activeIssues, setActiveIssues] = useState([]);
+  const [solvedIssues, setSolvedIssues] = useState([]);
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [escalations, setEscalations] = useState([]);
   const [escalationQueue, setEscalationQueue] = useState([]);
   const [stallPatterns, setStallPatterns] = useState([]);
   const [selectedEscalation, setSelectedEscalation] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [resolutionLocked, setResolutionLocked] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [apiErrors, setApiErrors] = useState({});
   const shownEscalationIdsRef = useRef(new Set());
   const dismissedUntilRef = useRef(new Map());
+  const activeIssueMapRef = useRef(new Map());
+  const resolutionLockedRef = useRef(false);
+  const seenInjectedIssuesRef = useRef(false);
 
   // Log API base URL on mount
   useEffect(() => {
@@ -91,7 +97,43 @@ export default function App() {
         console.log("Fetching active issues...");
         const res = await fetchActiveIssues();
         console.log("Active issues response:", res.data);
-        setActiveIssues(res.data?.issues || []);
+
+        const incomingIssues = res.data?.issues || [];
+        const incomingMap = new Map(
+          incomingIssues.map((issue) => [`${issue.workflow_id}|${issue.step_id}`, issue]),
+        );
+
+        const resolvedNow = [];
+        activeIssueMapRef.current.forEach((oldIssue, key) => {
+          if (!incomingMap.has(key)) {
+            resolvedNow.push({
+              id: `${key}-${Date.now()}`,
+              ...oldIssue,
+              resolvedAt: new Date().toISOString(),
+            });
+          }
+        });
+
+        if (resolvedNow.length > 0) {
+          setSolvedIssues((prev) => [...resolvedNow, ...prev].slice(0, 25));
+        }
+
+        activeIssueMapRef.current = incomingMap;
+        setActiveIssues(incomingIssues);
+
+        if (resolutionLockedRef.current) {
+          if (incomingIssues.length > 0) {
+            seenInjectedIssuesRef.current = true;
+          }
+
+          if (seenInjectedIssuesRef.current && incomingIssues.length === 0) {
+            resolutionLockedRef.current = false;
+            setResolutionLocked(false);
+            seenInjectedIssuesRef.current = false;
+            addToast("Agents resolved all injected issues", "success");
+          }
+        }
+
         setApiErrors((prev) => ({ ...prev, issues: null }));
       } catch (err) {
         console.error("Active issues fetch error:", err.message);
@@ -204,9 +246,20 @@ export default function App() {
   }, []);
 
   const handleBreakIt = async () => {
+    if (resolutionLockedRef.current) {
+      addToast("Wait for current injected issues to resolve", "info");
+      return;
+    }
+
+    setSolvedIssues([]);
+    activeIssueMapRef.current = new Map();
+    seenInjectedIssuesRef.current = false;
+
     setLoading(true);
     try {
       const res = await injectChaos();
+      resolutionLockedRef.current = true;
+      setResolutionLocked(true);
       addToast(`✓ ${res.data.message}`, "success");
     } catch (err) {
       addToast(`✗ ${err.message}`, "error");
@@ -295,13 +348,18 @@ export default function App() {
       {/* Header */}
       <div className="header">
         <h1>Process Autopsy Agent</h1>
-        <button
-          className="break-it-btn"
-          onClick={handleBreakIt}
-          disabled={loading}
-        >
-          ⚡ Break It
-        </button>
+        <div className="header-actions">
+          {(resolutionLocked || activeIssues.length > 0) && (
+            <span className="resolving-chip">Agent resolving issues...</span>
+          )}
+          <button
+            className="break-it-btn"
+            onClick={handleBreakIt}
+            disabled={loading || resolutionLocked}
+          >
+            {resolutionLocked ? "Resolving..." : "⚡ Break It"}
+          </button>
+        </div>
       </div>
 
       {/* Debug/Error Section */}
@@ -340,9 +398,10 @@ export default function App() {
           <WorkflowHeatmap workflows={workflows} activeIssues={activeIssues} />
         </div>
 
-        {/* Middle: Active Issues */}
+        {/* Middle: Active + Solved Issues */}
         <div className="middle-panel">
           <RiskQueue issues={activeIssues} onIssueClick={handleIssueClick} />
+          <SolvedIssues issues={solvedIssues} />
         </div>
 
         {/* Right: Audit Trail */}

@@ -21,6 +21,21 @@
   font-weight: 600;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.resolving-chip {
+  font-size: 0.78rem;
+  color: #fde68a;
+  background: #422006;
+  border: 1px solid #78350f;
+  border-radius: 999px;
+  padding: 0.28rem 0.65rem;
+}
+
 .break-it-btn {
   padding: 0.75rem 1.5rem;
   background: #ef4444;
@@ -61,6 +76,9 @@
   min-width: 0;
   overflow-y: auto;
   max-height: calc(100vh - 220px);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .right-panel {

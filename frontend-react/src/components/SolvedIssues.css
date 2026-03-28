@@ -1,0 +1,81 @@
+.solved-issues {
+  background: #1a1f3a;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.solved-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.solved-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.solved-badge {
+  background: #1f6f4a;
+  color: #d1fae5;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.solved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.solved-item {
+  background: #0f1535;
+  border: 1px solid #2d3748;
+  border-left: 3px solid #10b981;
+  border-radius: 6px;
+  padding: 0.65rem;
+}
+
+.solved-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.solved-type {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.solved-time {
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.solved-body p {
+  margin: 0;
+  color: #e5e7eb;
+  font-size: 0.84rem;
+}
+
+.solved-body small {
+  color: #9ca3af;
+  font-size: 0.72rem;
+}
+
+.empty {
+  text-align: center;
+  color: #6b7280;
+  margin: 0;
+  padding: 1rem;
+}

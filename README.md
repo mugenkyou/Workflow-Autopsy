@@ -73,6 +73,32 @@ Or run graph directly from `backend`:
 python -c "from graph import run_cycle; import json; print(json.dumps(run_cycle(), indent=2))"
 ```
 
+## Inject Test Failures
+
+To test the system with diverse stalled workflows:
+
+```bash
+cd backend
+python inject_failures.py
+```
+
+This injects 6 diverse test scenarios:
+
+1. **TEST-LongApproval** (15h) → triggers `wrong_approver` diagnosis
+2. **TEST-ShortApproval** (1.5h) → triggers `missing_data` diagnosis
+3. **TEST-LongPayment** (8h) → triggers `external_hold` diagnosis
+4. **TEST-ShortPayment** (2h) → triggers `missing_data` diagnosis
+5. **TEST-Invoice** (2h) → triggers `missing_data` diagnosis
+6. **TEST-VeryLongApproval** (25h) → triggers `wrong_approver` diagnosis (strong signal)
+
+Then run the autonomous cycle:
+
+```bash
+python agents/runner.py --once
+```
+
+Expected output: 6 issues processed with diverse diagnoses and actions.
+
 ## Runtime Output
 
 Per-issue pipeline output:

@@ -66,10 +66,11 @@ class DiagnosisAgent:
         )
 
     def _build_prompt(self, issue_details: dict[str, Any], pattern_summary: str, strict_mode: bool = False) -> str:
-        """Build grounded prompt with suggested classification and controlled override capability."""
+        """Build grounded prompt with strong deterministic rules and diversity enforcement."""
         step_name = issue_details.get('step_name', '')
         hours_overdue = float(issue_details.get('hours_overdue', 0))
         assignee = issue_details.get('assignee', '')
+        failure_type = issue_details.get('failure_type', '')
 
         details_block = (
             "Issue Details:\n"
@@ -78,62 +79,95 @@ class DiagnosisAgent:
             f"- assignee: {assignee}\n"
             f"- hours_overdue: {hours_overdue}\n"
             f"- risk_score: {issue_details.get('risk_score')}\n"
-            f"- failure_type: {issue_details.get('failure_type')}\n"
+            f"- failure_type: {failure_type}\n"
         )
 
-        # Determine classification based on explicit rules
-        if 'Payment' in step_name and 'Processing' in step_name:
-            suggested_type = "external_hold"
-            suggested_confidence = "0.70-0.75"
-            reason_fragment = "payment delays are external (vendor/banking)"
-        elif 'Approval' in step_name and hours_overdue > 20:
-            suggested_type = "wrong_approver"
-            suggested_confidence = "0.80-0.85"
-            reason_fragment = "delay >20h indicates wrong approver"
-        elif 'Approval' in step_name and 6 <= hours_overdue <= 20:
-            suggested_type = "external_hold"
-            suggested_confidence = "0.65-0.75"
-            reason_fragment = "moderate 6-20h delay suggests external block"
-        elif 'Approval' in step_name:  # <6 hours
-            suggested_type = "external_hold"
-            suggested_confidence = "0.55-0.65"
-            reason_fragment = "short <6h delay, likely vendor/workflow"
+        # Strong deterministic rules for classification
+        if 'Approval' in step_name:
+            if hours_overdue > 10:
+                # Strong signal: >10h approval delay → wrong approver
+                suggested_type = "wrong_approver"
+                suggested_confidence = "0.75-0.85"
+                reason_fragment = "approval delay >10h indicates wrong approver assignment"
+            elif 3 < hours_overdue <= 10:
+                # Moderate delay: external block likely
+                suggested_type = "external_hold"
+                suggested_confidence = "0.65-0.75"
+                reason_fragment = "3-10h approval delay suggests external dependency/block"
+            else:
+                # Short delay <3h: missing data or context
+                suggested_type = "missing_data"
+                suggested_confidence = "0.55-0.65"
+                reason_fragment = "short <3h delay suggests incomplete data submission"
+        elif 'Payment' in step_name and 'Processing' in step_name:
+            if hours_overdue > 6:
+                # Long payment delay → external (vendor/banking)
+                suggested_type = "external_hold"
+                suggested_confidence = "0.70-0.75"
+                reason_fragment = "payment delay >6h typically vendor/banking external cause"
+            else:
+                # Short payment delay → missing data (invoice not received)
+                suggested_type = "missing_data"
+                suggested_confidence = "0.60-0.70"
+                reason_fragment = "short payment delay suggests missing invoice or data"
         elif 'Invoice' in step_name:
-            suggested_type = "duplicate_invoice"
-            suggested_confidence = "0.70-0.80"
-            reason_fragment = "invoice processing issue"
+            if hours_overdue < 3:
+                # Very short delay → missing submission
+                suggested_type = "missing_data"
+                suggested_confidence = "0.60-0.70"
+                reason_fragment = "quick invoice rejection indicates missing/incomplete submission"
+            elif 'duplicate' in failure_type.lower() or 'duplicate' in step_name.lower():
+                # Explicit duplicate signal
+                suggested_type = "duplicate_invoice"
+                suggested_confidence = "0.75-0.85"
+                reason_fragment = "explicit duplicate invoice indicator in failure metadata"
+            else:
+                # General invoice processing issue
+                suggested_type = "duplicate_invoice"
+                suggested_confidence = "0.70-0.80"
+                reason_fragment = "invoice processing stall; likely duplicate or amount mismatch"
         else:
-            suggested_type = "external_hold"
-            suggested_confidence = "0.65-0.75"
-            reason_fragment = "default external cause"
+            # Default for other steps
+            if hours_overdue < 3:
+                suggested_type = "missing_data"
+                suggested_confidence = "0.60-0.70"
+                reason_fragment = "short delay suggests incomplete/missing data"
+            else:
+                suggested_type = "external_hold"
+                suggested_confidence = "0.65-0.75"
+                reason_fragment = "moderate delay suggests external blocking condition"
 
         rules = (
             "\nCLASSIFICATION GUIDANCE:\n"
             f"Suggested classification: {suggested_type}\n"
             f"Expected confidence range: {suggested_confidence}\n"
-            "\nYou may override this suggestion ONLY if strong evidence contradicts it.\n"
+            "\n** DIVERSITY IMPERATIVE **:\n"
+            "Avoid assigning identical stall_type to multiple issues in sequence.\n"
+            "If the pattern seems repetitive, consider alternative explanations.\n"
+            "\nYou may override this suggestion ONLY if evidence strongly contradicts it.\n"
             "\nOverride Rules:\n"
-            "- Override only if reasoning strongly supports a different cause\n"
-            "- If overriding, clearly explain why the suggested classification is incorrect\n"
-            "- Overrides should be rare (not more than 1-2 in a batch)\n"
-            "- If you override, reduce confidence below 0.75\n"
+            "- Override only if evidence is strong and contradicts the suggestion\n"
+            "- Overrides must be justified; explain why suggestion is incorrect\n"
+            "- Overrides should be RARE (1-2 per batch max)\n"
+            "- When overriding, use confidence < 0.75 to reflect uncertainty\n"
+            "- Consider: missing_data (incomplete submission), amount_variance (amount mismatch),\n"
+            "  wrong_approver (routing error), external_hold (vendor block), duplicate_invoice (duplicate)\n"
             "\nAmbiguity Handling:\n"
-            "- If multiple explanations are plausible, pick the most likely\n"
-            "- BUT reduce confidence to 0.60-0.70 to reflect uncertainty\n"
-            "- Include uncertainty language in reasoning\n"
+            "- If multiple explanations fit, choose most likely based on hours_overdue and step_name\n"
+            "- Reduce confidence to 0.60-0.70 when ambiguous\n"
+            "- Use hedging language: 'likely', 'suggests', 'indicates'\n"
             "\nAllowed types: wrong_approver, external_hold, duplicate_invoice, amount_variance, missing_data\n"
         )
 
         reasoning_format = (
             "\nReasoning Requirements:\n"
-            "- Exactly 1 sentence\n"
-            f"- Reference '{assignee}' (assignee name) and '{step_name}' (step)\n"
-            f"- Reference '{hours_overdue}' hours overdue\n"
-            "- Explain causal logic (WHY this classification)\n"
+            "- Exactly 1 sentence, analytical and specific\n"
+            f"- Reference assignee '{assignee}', step '{step_name}', delay '{hours_overdue}h'\n"
+            "- Explain causal linkage (WHY this classification fits)\n"
+            "- Vary sentence structure; avoid repetition\n"
             "\nIf overriding suggested classification:\n"
-            "- Include a phrase explaining disagreement\n"
-            f"- Example: 'Although delay suggests {suggested_type}, evidence indicates external dependency instead.'\n"
-            "\nDo NOT use identical reasoning patterns in each response.\n"
+            "- Explicitly note the override reason\n"
+            f"- Example: 'Although {suggested_type} suggests, {assignee} shows consistent submission delays indicating missing_data instead.'\n"
         )
 
         json_format = (

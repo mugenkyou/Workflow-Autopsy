@@ -474,6 +474,11 @@ export default function App() {
       {selectedSolvedIssue && (
         <SolvedIssueDetails
           issue={selectedSolvedIssue}
+          auditLog={auditLog}
+          workflow={
+            workflows.find((wf) => wf.id === selectedSolvedIssue.workflow_id) ||
+            null
+          }
           onClose={() => setSelectedSolvedIssue(null)}
         />
       )}

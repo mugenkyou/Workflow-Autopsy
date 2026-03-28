@@ -23,9 +23,19 @@ class AuditAgent:
     def run(self, issue: dict[str, Any], diagnosis: dict[str, Any], action_result: dict[str, Any]) -> dict[str, Any]:
         workflow_id = str(issue.get("workflow_id", ""))
         step_id = str(issue.get("step_id", ""))
-        action_taken = str(action_result.get("action_taken", "unknown_action"))
-        reasoning = str(diagnosis.get("reasoning", ""))
-        confidence = float(diagnosis.get("confidence", 0.0))
+        action_taken = str(action_result.get("action_taken") or "unknown_action")
+        reasoning = str(diagnosis.get("reasoning") or "Reasoning unavailable")
+
+        raw_confidence = diagnosis.get("confidence", None)
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        if confidence < 0.0:
+            confidence = 0.0
+        if confidence > 1.0:
+            confidence = 1.0
 
         entry = {
             "id": str(uuid.uuid4()),

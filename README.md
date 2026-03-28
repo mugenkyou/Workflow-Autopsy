@@ -58,6 +58,28 @@ ollama run mistral
 - `GET /workflows`: all workflows with current step
 - `GET /audit-log`: latest audit log records
 - `POST /inject-failure`: inject `stall`, `duplicate`, or `sla_breach`
+- `POST /run-cycle`: execute one autonomous cycle and return audit entries
+
+## Live Dashboard
+
+Open the real-time dashboard with live polling and agent activity feed:
+
+```bash
+# Ensure API server is running on port 8000
+frontend/index.html
+```
+
+Or open directly in your browser:
+```
+file:///path/to/process-autopsy-agent/frontend/index.html
+```
+
+**Dashboard features:**
+- **Audit Trail** (left panel): Complete audit log with agent badges, timestamps, confidence scores
+- **Agent Feed** (right panel): Real-time stream of agent actions with LIVE indicator
+- **Auto-polling**: Updates every 3-5 seconds without page refresh
+- **Auto-cycle**: Runs autonomous cycle every 30 seconds
+- Responsive dark-themed UI built with React (CDN) + Tailwind
 
 ## Run Autonomous Cycle
 

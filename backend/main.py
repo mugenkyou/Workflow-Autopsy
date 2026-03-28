@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from db import get_connection, init_db, seed_data, repair_data
+from graph import run_cycle
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,13 @@ class InjectFailureRequest(BaseModel):
 class InjectFailureResponse(BaseModel):
     success: bool
     message: str
+
+
+class RunCycleResponse(BaseModel):
+    success: bool
+    issues_processed: int
+    audit_entries: List[AuditLogEntry]
+    message: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -257,3 +265,44 @@ def inject_failure(payload: InjectFailureRequest):
     conn.close()
 
     return InjectFailureResponse(success=True, message=message)
+
+
+@app.post("/run-cycle", response_model=RunCycleResponse)
+def run_autonomous_cycle():
+    """Execute one autonomous cycle of the agent system and return audit entries."""
+    try:
+        # Call graph.run_cycle() which processes all issues and returns audit entries
+        result = run_cycle()
+        
+        # Count issues processed
+        issues_processed = len(result) if result else 0
+        
+        # Convert to AuditLogEntry models
+        entries = [
+            AuditLogEntry(
+                id=entry.get("id", ""),
+                workflow_id=entry.get("workflow_id"),
+                step_id=entry.get("step_id"),
+                agent_name=entry.get("agent_name"),
+                action=entry.get("action"),
+                reasoning=entry.get("reasoning"),
+                confidence=entry.get("confidence"),
+                timestamp=entry.get("timestamp"),
+            )
+            for entry in result
+        ]
+        
+        return RunCycleResponse(
+            success=True,
+            issues_processed=issues_processed,
+            audit_entries=entries,
+            message=f"Cycle complete: {issues_processed} issues processed",
+        )
+    
+    except Exception as e:
+        return RunCycleResponse(
+            success=False,
+            issues_processed=0,
+            audit_entries=[],
+            message=f"Cycle failed: {str(e)}",
+        )

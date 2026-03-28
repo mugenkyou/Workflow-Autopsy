@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -10,6 +11,14 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from db import get_connection
+
+
+ENABLE_AUTO_OVERDUE_DETECTION = os.getenv("ENABLE_AUTO_OVERDUE_DETECTION", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 class MonitorAgent:
@@ -66,14 +75,16 @@ class MonitorAgent:
         cur = conn.cursor()
 
         # Query 1: Overdue in-progress steps
-        rows = cur.execute(
-            "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.sla_hours, s.started_at, "
-            "s.status, w.vendor, w.po_amount, w.created_at "
-            "FROM steps s "
-            "JOIN workflows w ON w.id = s.workflow_id "
-            "WHERE s.status = 'in_progress' AND s.completed_at IS NULL "
-            "AND w.status != 'duplicate_hold'"
-        ).fetchall()
+        rows: list[Any] = []
+        if ENABLE_AUTO_OVERDUE_DETECTION:
+            rows = cur.execute(
+                "SELECT s.id AS step_id, s.workflow_id, s.step_name, s.assignee, s.sla_hours, s.started_at, "
+                "s.status, w.vendor, w.po_amount, w.created_at "
+                "FROM steps s "
+                "JOIN workflows w ON w.id = s.workflow_id "
+                "WHERE s.status = 'in_progress' AND s.completed_at IS NULL "
+                "AND w.status != 'duplicate_hold'"
+            ).fetchall()
 
         now = datetime.utcnow()
         issues: list[dict[str, Any]] = []

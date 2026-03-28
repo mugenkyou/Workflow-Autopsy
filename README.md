@@ -8,6 +8,11 @@ A multi-agent system for detecting, diagnosing, and resolving stalled purchase o
 
 ## System Architecture
 
+Detailed diagrams:
+- [docs/system-architecture.md](docs/system-architecture.md)
+- [docs/component-diagram.mmd](docs/component-diagram.mmd)
+- [docs/workflow-sequence.mmd](docs/workflow-sequence.mmd)
+
 ### Backend (FastAPI + LangGraph)
 
 - **Port**: 8000 (localhost)

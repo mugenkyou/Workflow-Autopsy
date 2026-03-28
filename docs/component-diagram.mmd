@@ -1,0 +1,51 @@
+flowchart LR
+    subgraph UI[Frontend - React/Vite]
+        APP[App.jsx]
+        HEATMAP[WorkflowHeatmap]
+        RISK[RiskQueue]
+        AUDIT[AuditTrail]
+        ESC[EscalationPreview]
+        STALL[StallInsights]
+    end
+
+    subgraph API[Backend - FastAPI]
+        MAIN[main.py]
+        MON[MonitorAgent]
+        DIAG[DiagnosisAgent]
+        ACT[ActionAgent]
+        AUT[AuditAgent]
+        GRAPH[LangGraph Orchestrator]
+        DBMOD[db.py]
+    end
+
+    subgraph DATA[Data Layer]
+        SQLITE[(SQLite\nautopsy.db)]
+        PAT[(stall_patterns)]
+        ESCAL[(escalations)]
+        AUD[(audit_log)]
+    end
+
+    subgraph LLM[Inference]
+        OLL[Ollama\nmistral]
+    end
+
+    APP -->|REST polling| MAIN
+    MAIN --> GRAPH
+    GRAPH --> MON
+    GRAPH --> DIAG
+    GRAPH --> ACT
+    GRAPH --> AUT
+
+    DIAG -->|diagnosis prompt| OLL
+
+    MAIN --> DBMOD
+    DBMOD --> SQLITE
+    SQLITE --> PAT
+    SQLITE --> ESCAL
+    SQLITE --> AUD
+
+    MAIN -->|/workflows| HEATMAP
+    MAIN -->|/active-issues| RISK
+    MAIN -->|/audit-log| AUDIT
+    MAIN -->|/escalations| ESC
+    MAIN -->|/stall-patterns| STALL

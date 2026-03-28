@@ -1,8 +1,8 @@
 # System Architecture
 
-This document captures the runtime architecture for the Process Autopsy Agent and links the source Mermaid diagrams used by the project.
+This document defines the runtime architecture of Process Autopsy Agent and provides the canonical diagram sources used by the project.
 
-## 1) Component Diagram
+## Component Topology
 
 Source: [component-diagram.mmd](component-diagram.mmd)
 
@@ -60,7 +60,7 @@ flowchart LR
     MAIN -->|/stall-patterns| STALL
 ```
 
-## 2) Workflow Sequence Diagram
+## Workflow Sequence
 
 Source: [workflow-sequence.mmd](workflow-sequence.mmd)
 
@@ -82,7 +82,7 @@ sequenceDiagram
     API->>DB: Mark random steps as stalled/breached/duplicate
     API-->>UI: Chaos injected (success)
 
-    loop Polling (3s/5s/10s)
+    loop Polling (5s/5s/15s)
         UI->>API: GET /workflows, /active-issues, /audit-log, /escalations, /stall-patterns
         API->>DB: Query current state
         API-->>UI: Latest workflow + issue snapshots
@@ -119,8 +119,9 @@ sequenceDiagram
     end
 ```
 
-## 3) Notes
+## Operational Notes
 
-- Frontend is polling-based, so UI state reflects backend changes without manual refresh.
-- The diagnosis stage is the only stage that depends on LLM inference.
-- Escalations support a human-in-the-loop review path via /mark-resolved.
+- The frontend is polling-based and reflects backend state continuously.
+- Only the diagnosis stage depends on LLM inference.
+- Escalations support a human-in-the-loop decision path through /mark-resolved.
+- Issue lifecycle is intentionally auditable end-to-end through audit_log records.

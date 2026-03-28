@@ -1,3 +1,6 @@
+%% Process Autopsy Agent - Workflow Sequence
+%% Demonstrates failure injection, polling, orchestration cycle, and escalation review
+
 sequenceDiagram
     autonumber
     participant User
@@ -15,7 +18,7 @@ sequenceDiagram
     API->>DB: Mark random steps as stalled/breached/duplicate
     API-->>UI: Chaos injected (success)
 
-    loop Polling (3s/5s/10s)
+    loop Polling (5s/5s/15s)
         UI->>API: GET /workflows, /active-issues, /audit-log, /escalations, /stall-patterns
         API->>DB: Query current state
         API-->>UI: Latest workflow + issue snapshots

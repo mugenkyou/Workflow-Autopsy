@@ -417,31 +417,14 @@ def inject_chaos():
         except Exception as e:
             print(f"Failed to inject sla_breach: {e}")
         
-        # Run cycle immediately
-        try:
-            cycle_result = run_cycle()
-            entries = [
-                AuditLogEntry(
-                    id=entry.get("id", ""),
-                    workflow_id=entry.get("workflow_id"),
-                    step_id=entry.get("step_id"),
-                    agent_name=entry.get("agent_name"),
-                    action=entry.get("action"),
-                    reasoning=entry.get("reasoning"),
-                    confidence=entry.get("confidence"),
-                    timestamp=entry.get("timestamp"),
-                )
-                for entry in (cycle_result or [])
-            ]
-        except Exception as e:
-            print(f"Cycle execution failed: {e}")
-            entries = []
+        # DO NOT run cycle here — let it run on its own polling schedule (~30s)
+        # This enables users to see injected failures in the UI before resolution
         
         return InjectChaosResponse(
             success=True,
-            message=f"Chaos injected: {len(failures_injected)} failures, running cycle...",
+            message=f"Chaos injected: {len(failures_injected)} failures (will resolve on next cycle ~30s)",
             failures_injected=failures_injected,
-            audit_entries=entries,
+            audit_entries=[],
         )
     
     except Exception as e:

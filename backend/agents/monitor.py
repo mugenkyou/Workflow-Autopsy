@@ -46,12 +46,13 @@ class MonitorAgent:
         return bool(row and row[0] > 0)
 
     @staticmethod
-    def _failure_type(step_name: str, is_duplicate: bool) -> str:
+    def _failure_type(step_name: str, is_duplicate: bool, hours_overdue: float) -> str:
         if "Approval" in step_name:
             return "stall"
         if "Invoice" in step_name and is_duplicate:
             return "duplicate"
-        return "sla_breach"
+        # Reserve sla_breach for materially overdue cases.
+        return "sla_breach" if hours_overdue > 10 else "stall"
 
     def run(self) -> list[dict[str, Any]]:
         """Return overdue in-progress issues + stalled/breached steps, ordered by descending risk score."""
@@ -97,7 +98,7 @@ class MonitorAgent:
                 po_amount=po_amount,
                 created_at=row["created_at"],
             )
-            failure_type = self._failure_type(row["step_name"], duplicate)
+            failure_type = self._failure_type(row["step_name"], duplicate, hours_overdue)
 
             issue = {
                 "workflow_id": row["workflow_id"],
@@ -143,8 +144,11 @@ class MonitorAgent:
             po_amount = float(row["po_amount"])
             risk_score = hours_overdue * po_amount * 0.001
 
-            # Classify failure type based on step status
-            failure_type = "stall" if row["status"] == "stalled" else "sla_breach"
+            # Classify based on severity, not only DB status labels.
+            if row["status"] == "stalled":
+                failure_type = "stall"
+            else:
+                failure_type = "sla_breach" if hours_overdue > 10 else "stall"
 
             issue = {
                 "workflow_id": row["workflow_id"],

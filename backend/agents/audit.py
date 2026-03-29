@@ -21,12 +21,16 @@ class AuditAgent:
         return datetime.now(UTC).isoformat()
 
     def run(self, issue: dict[str, Any], diagnosis: dict[str, Any], action_result: dict[str, Any]) -> dict[str, Any]:
-        workflow_id = str(issue.get("workflow_id", ""))
-        step_id = str(issue.get("step_id", ""))
-        action_taken = str(action_result.get("action_taken") or "unknown_action")
-        reasoning = str(diagnosis.get("reasoning") or "Reasoning unavailable")
+        workflow_id = str(issue.get("workflow_id") or "unknown_workflow")
+        step_id = str(issue.get("step_id") or "unknown_step")
+        action_taken = str(action_result.get("action_taken") or "escalate_sla")
 
-        raw_confidence = diagnosis.get("confidence", None)
+        reasoning = str(diagnosis.get("reasoning") or "").strip()
+        if not reasoning:
+            details = str(action_result.get("details") or "").strip()
+            reasoning = details or "The system selected a deterministic corrective action based on issue context."
+
+        raw_confidence = diagnosis.get("confidence", 0.5)
         try:
             confidence = float(raw_confidence)
         except (TypeError, ValueError):

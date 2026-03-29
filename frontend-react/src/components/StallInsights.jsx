@@ -51,7 +51,8 @@ export default function StallInsights({ patterns }) {
       <div className="insights-header">
         <h3>🧠 Agent Learning: Stall Patterns</h3>
         <p className="subtitle">
-          The system learns recurring failure patterns and adjusts actions automatically
+          The system learns recurring failure patterns and adjusts actions
+          automatically
         </p>
       </div>
 
@@ -63,14 +64,21 @@ export default function StallInsights({ patterns }) {
             const color = getPatternColor(pattern.stall_rate);
             const approver = formatApprover(pattern.approver_id);
             const condition = describeCondition(pattern.condition);
-            const problemDescription = describePatternImpact(pattern.stall_rate);
-            const frequency = describeFrequency(pattern.stall_rate, pattern.sample_count);
+            const problemDescription = describePatternImpact(
+              pattern.stall_rate,
+            );
+            const frequency = describeFrequency(
+              pattern.stall_rate,
+              pattern.sample_count,
+            );
             const response = systemResponse(pattern.stall_rate);
             return (
               <div key={idx} className="pattern-row">
                 <div className="pattern-info">
                   <div className="approver-name">{approver}</div>
-                  <div className="problem-description">{problemDescription}</div>
+                  <div className="problem-description">
+                    {problemDescription}
+                  </div>
                   <div className="condition">{condition}</div>
                   <div className="frequency">Frequency: {frequency}</div>
                   <div className="system-response">

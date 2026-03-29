@@ -47,17 +47,6 @@ def _issue_key(issue: dict[str, Any]) -> str:
     return f"{issue.get('workflow_id', '')}:{issue.get('step_id', '')}"
 
 
-def _already_audited(workflow_id: str, step_id: str) -> bool:
-    conn = get_connection()
-    cur = conn.cursor()
-    row = cur.execute(
-        "SELECT 1 FROM audit_log WHERE workflow_id = ? AND step_id = ? LIMIT 1",
-        (workflow_id, step_id),
-    ).fetchone()
-    conn.close()
-    return bool(row)
-
-
 def monitor_node(state: AgentState) -> AgentState:
     global _cycle_start_time
     _cycle_start_time = datetime.utcnow()
@@ -103,10 +92,6 @@ def diagnosis_node(state: AgentState) -> AgentState:
 
         if issue_key in processed_issue_keys:
             print(f"[DIAGNOSIS] SKIP duplicate queue entry {workflow_id}/{step_id}", file=sys.stderr)
-            continue
-
-        if _already_audited(str(workflow_id), str(step_id)):
-            print(f"[DIAGNOSIS] SKIP already audited {workflow_id}/{step_id}", file=sys.stderr)
             continue
 
         processing_attempt = int(state.get("processing_attempt", 0)) + 1
@@ -407,6 +392,7 @@ def run_cycle() -> list[dict[str, Any]]:
         print("[CYCLE] Skipping run_cycle: another cycle is already in progress", file=sys.stderr)
         return []
 
+    diagnosis_agent.begin_cycle()
     app = _build_graph()
     try:
         final_state = app.invoke({"issues": [], "audit_entries": [], "pipeline_results": []})

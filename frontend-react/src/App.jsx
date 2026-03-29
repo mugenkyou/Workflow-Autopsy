@@ -20,6 +20,56 @@ import SolvedIssueDetails from "./components/SolvedIssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
+function compareByTimestampDesc(a, b) {
+  const aTs = Date.parse(a?.timestamp || "") || 0;
+  const bTs = Date.parse(b?.timestamp || "") || 0;
+  return bTs - aTs;
+}
+
+function getLatestEntryForIssue(entries, workflowId, stepId) {
+  if (!Array.isArray(entries) || !workflowId || !stepId) {
+    return null;
+  }
+
+  let latest = null;
+  let latestTs = -1;
+
+  for (const entry of entries) {
+    if (entry?.workflow_id !== workflowId || entry?.step_id !== stepId) {
+      continue;
+    }
+    const ts = Date.parse(entry?.timestamp || "") || 0;
+    if (ts >= latestTs) {
+      latest = entry;
+      latestTs = ts;
+    }
+  }
+
+  return latest;
+}
+
+function mergeAuditHistory(previous, incoming) {
+  const safePrev = Array.isArray(previous) ? previous : [];
+  const safeIncoming = Array.isArray(incoming) ? incoming : [];
+
+  const seenIds = new Set();
+  const merged = [];
+
+  // Keep latest backend rows first; only dedupe exact same id.
+  for (const entry of [...safeIncoming, ...safePrev]) {
+    const id = String(entry?.id || "").trim();
+    if (id) {
+      if (seenIds.has(id)) {
+        continue;
+      }
+      seenIds.add(id);
+    }
+    merged.push(entry);
+  }
+
+  return merged.sort(compareByTimestampDesc);
+}
+
 export default function App() {
   // Demo-stable flag: escalation UI and polling are disabled by default.
   const ENABLE_ESCALATION = false;
@@ -46,6 +96,7 @@ export default function App() {
   const shownEscalationIdsRef = useRef(new Set());
   const dismissedUntilRef = useRef(new Map());
   const activeIssueMapRef = useRef(new Map());
+  const auditLogRef = useRef([]);
   const resolutionLockedRef = useRef(false);
   const seenInjectedIssuesRef = useRef(false);
 
@@ -95,7 +146,7 @@ export default function App() {
         console.log("Fetching audit log...");
         const res = await fetchAuditLog();
         console.log("Audit log response:", res.data);
-        setAuditLog(res.data);
+        setAuditLog((prev) => mergeAuditHistory(prev, res.data));
         setApiErrors((prev) => ({ ...prev, audit: null }));
       } catch (err) {
         console.error("Audit log fetch error:", err.message);
@@ -103,9 +154,13 @@ export default function App() {
       }
     };
     pollAudit();
-    const interval = setInterval(pollAudit, 5000);
+    const interval = setInterval(pollAudit, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    auditLogRef.current = auditLog;
+  }, [auditLog]);
 
   // Poll active issues every 5s
   useEffect(() => {
@@ -131,10 +186,16 @@ export default function App() {
         const resolvedNow = [];
         activeIssueMapRef.current.forEach((oldIssue, key) => {
           if (!incomingMap.has(key)) {
+            const latestAudit = getLatestEntryForIssue(
+              auditLogRef.current,
+              oldIssue.workflow_id,
+              oldIssue.step_id,
+            );
             resolvedNow.push({
               id: `${key}-${Date.now()}`,
               ...oldIssue,
               resolvedAt: new Date().toISOString(),
+              action_taken: String(latestAudit?.action || oldIssue.action_taken || ""),
             });
           }
         });
@@ -144,17 +205,14 @@ export default function App() {
         }
 
         activeIssueMapRef.current = incomingMap;
-        setActiveIssues(scopedIncomingIssues);
+        setActiveIssues(Array.from(incomingMap.values()));
 
         if (resolutionLockedRef.current) {
           if (scopedIncomingIssues.length > 0) {
             seenInjectedIssuesRef.current = true;
           }
 
-          if (
-            seenInjectedIssuesRef.current &&
-            scopedIncomingIssues.length === 0
-          ) {
+          if (seenInjectedIssuesRef.current && incomingMap.size === 0) {
             resolutionLockedRef.current = false;
             setResolutionLocked(false);
             seenInjectedIssuesRef.current = false;
@@ -285,14 +343,6 @@ export default function App() {
       return;
     }
 
-    setSolvedIssues([]);
-    setActiveIssues([]);
-    activeIssueMapRef.current = new Map();
-    seenInjectedIssuesRef.current = false;
-    setCurrentRunId(null);
-    setCurrentRunWorkflowIds([]);
-    setHeatmapRevision((prev) => prev + 1);
-
     setLoading(true);
     try {
       const res = await injectChaos();
@@ -300,6 +350,16 @@ export default function App() {
       const workflowIds = Array.isArray(res.data?.workflow_ids)
         ? res.data.workflow_ids
         : parseInjectedWorkflowIds(res.data?.failures_injected);
+
+      // Reset local view only after backend confirmed a fresh Break It run.
+      setSolvedIssues([]);
+      setActiveIssues([]);
+      activeIssueMapRef.current = new Map();
+      seenInjectedIssuesRef.current = false;
+      setCurrentRunId(null);
+      setCurrentRunWorkflowIds([]);
+      setHeatmapRevision((prev) => prev + 1);
+
       resolutionLockedRef.current = true;
       setResolutionLocked(true);
       setCurrentRunId(runId);
@@ -395,11 +455,11 @@ export default function App() {
     : null;
 
   const selectedIssueAuditEntry = selectedIssue
-    ? auditLog.find(
-        (entry) =>
-          entry.workflow_id === selectedIssue.workflow_id &&
-          entry.step_id === selectedIssue.step_id,
-      ) || null
+    ? getLatestEntryForIssue(
+        auditLog,
+        selectedIssue.workflow_id,
+        selectedIssue.step_id,
+      )
     : null;
 
   const selectedIssueStillActive = selectedIssue

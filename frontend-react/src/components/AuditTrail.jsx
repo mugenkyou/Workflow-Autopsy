@@ -10,6 +10,12 @@ export default function AuditTrail({ logs }) {
     return "#6b7280";
   };
 
+  const sortedLogs = [...logs].sort((a, b) => {
+    const aTs = Date.parse(a?.timestamp || "") || 0;
+    const bTs = Date.parse(b?.timestamp || "") || 0;
+    return bTs - aTs;
+  });
+
   return (
     <div className="audit-trail">
       <div className="trail-header">
@@ -18,11 +24,17 @@ export default function AuditTrail({ logs }) {
       </div>
 
       <div className="trail-events">
-        {logs.length === 0 ? (
+        {sortedLogs.length === 0 ? (
           <p className="empty">No audit events</p>
         ) : (
-          logs.slice(0, 20).map((log, idx) => (
-            <div key={log.id || idx} className="event">
+          sortedLogs.map((log, idx) => (
+            <div
+              key={
+                log.id ||
+                `${log.timestamp || "ts"}-${log.workflow_id || "wf"}-${log.step_id || "step"}-${idx}`
+              }
+              className="event"
+            >
               <div
                 className="event-marker"
                 style={{ background: getAgentColor(log.agent_name) }}

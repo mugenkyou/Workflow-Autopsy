@@ -8,7 +8,7 @@ from typing import List, Optional
 import random
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -270,8 +270,12 @@ def get_workflows():
 
 
 @app.get("/audit-log", response_model=List[AuditLogEntry])
-def get_audit_log():
+def get_audit_log(response: Response):
     """Return the last 50 audit log entries, newest first."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -330,7 +334,8 @@ def inject_failure(payload: InjectFailureRequest):
             conn.close()
             raise HTTPException(status_code=409, detail="No active step found to stall")
         sla_hours = int(step["sla_hours"] or 12)
-        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+        # Use a deeper delay so stall injections are diagnosed with stronger urgency.
+        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 12)).isoformat()
         cursor.execute(
             "UPDATE steps SET status = 'stalled', started_at = ?, completed_at = NULL, injected_run_id = ? WHERE id = ?",
             (overdue_start, payload.injected_run_id, step["id"]),
@@ -351,7 +356,7 @@ def inject_failure(payload: InjectFailureRequest):
         ).fetchone()
         if step:
             sla_hours = int(step["sla_hours"] or 12)
-            overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+            overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 4)).isoformat()
             cursor.execute(
                 "UPDATE steps SET started_at = ?, completed_at = NULL, status = 'in_progress', injected_run_id = ? WHERE id = ?",
                 (overdue_start, payload.injected_run_id, step["id"]),
@@ -375,7 +380,8 @@ def inject_failure(payload: InjectFailureRequest):
             conn.close()
             raise HTTPException(status_code=409, detail="No active step found to breach")
         sla_hours = int(step["sla_hours"] or 12)
-        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 2)).isoformat()
+        # SLA-breach scenarios should remain significantly overdue to drive escalation paths.
+        overdue_start = (datetime.utcnow() - timedelta(hours=sla_hours + 8)).isoformat()
         cursor.execute(
             "UPDATE steps SET status = 'breached', started_at = ?, completed_at = NULL, injected_run_id = ? WHERE id = ?",
             (overdue_start, payload.injected_run_id, step["id"]),

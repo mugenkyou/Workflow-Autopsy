@@ -49,7 +49,25 @@ For full technical detail, see [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/syst
 
 ## Setup Instructions
 
-### 1. Install dependencies
+### 1. Install and prepare Ollama (required for DiagnosisAgent)
+
+This project uses a local Ollama server with the `mistral` model for diagnosis.
+
+1. Install Ollama: https://ollama.com/download
+2. Start Ollama (it should run on `http://localhost:11434`)
+3. Pull the required model:
+
+```bash
+ollama pull mistral
+```
+
+Optional quick check:
+
+```bash
+ollama run mistral "Say hello"
+```
+
+### 2. Install dependencies
 
 Backend dependencies:
 
@@ -65,14 +83,14 @@ npm install
 cd ..
 ```
 
-### 2. Run backend
+### 3. Run backend
 
 ```bash
 cd backend
 python -m uvicorn main:app --host localhost --port 8000 --reload
 ```
 
-### 3. Run frontend
+### 4. Run frontend
 
 In a second terminal:
 
@@ -81,7 +99,7 @@ cd frontend-react
 npm run dev
 ```
 
-### 4. Open dashboard
+### 5. Open dashboard
 
 Navigate to http://localhost:5175
 

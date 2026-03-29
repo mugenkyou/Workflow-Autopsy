@@ -13,8 +13,17 @@ venv/
 .venv/
 env/
 
+# Node
+node_modules/
+
+# Environment files
+.env
+
 # SQLite database
 *.db
+
+# Logs
+*.log
 
 # IDE
 .vscode/

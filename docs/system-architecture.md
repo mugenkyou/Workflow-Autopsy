@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## Operational Notes
 
-- The frontend is polling-based and reflects backend state continuously.
-- Only the diagnosis stage depends on LLM inference.
-- Escalations support a human-in-the-loop decision path through /mark-resolved.
-- Issue lifecycle is intentionally auditable end-to-end through audit_log records.
+- The frontend is polling-based and continuously reflects backend operational state.
+- Only the diagnosis stage depends on LLM inference; action execution remains deterministic.
+- Escalations provide a human-in-the-loop decision path through /mark-resolved when required.
+- Issue lifecycle events are fully traceable through durable audit_log records.

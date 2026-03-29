@@ -1,186 +1,136 @@
-# Process Autopsy Agent
+# Process Autopsy Agent - Autonomous Workflow Recovery System
 
-Real-time multi-agent workflow management for stalled purchase order operations.
-
-The platform detects workflow friction, diagnoses root causes, applies deterministic corrective actions, and records every intervention for auditability. It is built with FastAPI, LangGraph, React/Vite, SQLite, and local Ollama (mistral).
-
----
+Autonomous detection, diagnosis, and recovery for disrupted enterprise workflows.
 
 ## Overview
 
-- Backend API: FastAPI on localhost:8000
-- Frontend dashboard: React/Vite on localhost:5175
-- Orchestration: Monitor -> Diagnosis -> Action -> Audit
-- Data store: SQLite (backend/autopsy.db)
-- Inference: Ollama mistral (local)
+Process Autopsy Agent continuously monitors workflow operations, detects disruptions, classifies root causes, applies deterministic recovery actions, and records every decision for traceability. The platform combines agentic orchestration with LLM-assisted diagnosis while keeping execution policy deterministic and auditable. It is designed for live operational demos and practical workflow resilience use cases where consistency, explainability, and response speed matter.
 
-### Architecture Docs
+## Key Capabilities
 
-- [docs/system-architecture.md](docs/system-architecture.md)
-- [docs/component-diagram.mmd](docs/component-diagram.mmd)
-- [docs/workflow-sequence.mmd](docs/workflow-sequence.mmd)
+- Autonomous issue detection from workflow state and SLA timing signals
+- LLM-based diagnosis for root-cause classification
+- Deterministic recovery actions mapped to diagnosis categories
+- Financial risk prioritization using dynamic risk scoring
+- Full audit trail with reasoning and confidence scoring
+- Learning loop from past disruptions through stall pattern aggregation
 
----
+## System Architecture
 
-## Getting Started
+The runtime path is intentionally linear and auditable:
 
-### Prerequisites
+Monitor -> Diagnosis -> Action -> Audit -> Learning
 
-- Python 3.x
-- Node.js and npm
-- Ollama installed with mistral model
+Monitor identifies active disruptions. Diagnosis classifies probable causes and confidence. Action executes deterministic remediation (no free-form LLM control over execution). Audit writes a durable decision log. Learning updates historical stall patterns for future prioritization and diagnosis quality.
 
-### Backend
+For full technical detail, see [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/system-architecture.md](docs/system-architecture.md).
+
+## How It Works
+
+1. Detect issue in active workflow state.
+2. Diagnose cause using contextual classification.
+3. Execute deterministic fix based on policy mapping.
+4. Log decision, confidence, and action result.
+5. Learn pattern signals from observed disruptions.
+
+## Demo Features
+
+- Break It control to inject realistic workflow disruptions
+- Live audit feed showing diagnosis, action, and audit events
+- Risk-priority queue of active disruptions
+- Workflow heatmap for visual operational status
+- Stall learning panel for historical behavior insights
+
+## Tech Stack
+
+- Backend: FastAPI, SQLite, LangGraph
+- Frontend: React + Tailwind-oriented UI structure (with component CSS styling)
+- LLM: Mistral via local Ollama endpoint
+
+## Setup Instructions
+
+### 1. Install dependencies
+
+Backend dependencies:
 
 ```bash
-cd backend
-pip install -r ../requirements.txt
-python -m uvicorn main:app --host localhost --port 8000 --reload
+pip install -r requirements.txt
 ```
 
-### Frontend
+Frontend dependencies:
 
 ```bash
 cd frontend-react
 npm install
+cd ..
+```
+
+### 2. Run backend
+
+```bash
+cd backend
+python -m uvicorn main:app --host localhost --port 8000 --reload
+```
+
+### 3. Run frontend
+
+In a second terminal:
+
+```bash
+cd frontend-react
 npm run dev
 ```
 
----
+### 4. Open dashboard
 
-## Core Capabilities
+Navigate to http://localhost:5175
 
-- Real-time workflow monitoring and risk ranking
-- Autonomous issue resolution with deterministic action mapping
-- Solved issues tracking with intervention details
-- Human-in-the-loop escalation review path
-- Break It and Stop Agent controls for demo operations
-- Audit transparency with reasoning and confidence logs
+## How to Demo
 
----
+1. Open the dashboard and confirm baseline workflows are stable.
+2. Click Break It to inject disruptions.
+3. Observe Risk Queue prioritization and heatmap changes.
+4. Watch live Audit Trail updates (diagnosis -> action -> audit).
+5. Observe system-driven recovery and learning signal updates.
 
-## API Endpoints
+## Example Output
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| /health | GET | Service health and model status |
-| /workflows | GET | Current workflow state with active step |
-| /active-issues | GET | Ranked active issues and total risk exposure |
-| /audit-log | GET | Recent intervention audit records |
-| /stall-patterns | GET | Learned bottleneck patterns |
-| /escalations | GET | Open escalation queue |
-| /inject-chaos | POST | Inject 3 demo failures |
-| /run-cycle | POST | Execute one orchestration cycle |
-| /mark-resolved | POST | Mark escalation as reviewed |
-| /stop-agent | POST | Stop active agent processing |
+```text
+2026-03-29T02:31:37Z | DiagnosisAgent | classified:reroute_approver
+Rohit Sharma has 12.0h delay on Finance Approval; approval routing friction detected -> reassigned to alternate approver.
+confidence=0.78
 
----
+2026-03-29T02:31:37Z | ActionAgent | reroute_approver
+Executed corrective action (workflow_123 / step_456).
 
-## System Demo Flow
-
-1. Start backend and frontend services.
-2. Open dashboard at http://localhost:5175.
-3. Click Break It to inject controlled failures.
-4. Observe issues in Risk Queue and interventions in Audit Trail.
-5. Wait for automatic resolution cycle.
-6. Open Solved Issues to review intervention outcomes.
-
----
-
-## Data Model
-
-- workflows: Business workflow headers and overall status
-- steps: Per-workflow lifecycle steps with SLA and timestamps
-- audit_log: Intervention action, reasoning, confidence, timestamp
-- stall_patterns: Aggregated behavior signals
-- escalations: Human review queue with resolution timestamps
-
----
-
-## Troubleshooting
-
-### Backend does not start
-
-```bash
-python -c "import fastapi, uvicorn, langgraph, ollama"
-netstat -ano | findstr :8000
-taskkill /IM python.exe /F
+2026-03-29T02:31:37Z | AuditAgent | audit_recorded
+Captured lifecycle record (workflow_123 / step_456).
 ```
-
-### Frontend cannot reach backend
-
-- Verify health endpoint: http://localhost:8000/health
-- Verify API base URL in frontend-react/src/api/client.js
-- Check browser network and console logs
-
-### Reset local database
-
-```bash
-rm backend/autopsy.db
-```
-
-Restart backend after deletion to recreate state.
-
----
-
-## Testing
-
-### API Smoke Check
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/workflows
-```
-
-### Stop Backend Completely (Windows PowerShell)
-
-```powershell
-try { Invoke-RestMethod -Method Post -Uri "http://localhost:8000/stop-agent" | Out-Null } catch {}; (@(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique) + @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like "*process-autopsy-agent*backend*" } | Select-Object -ExpandProperty ProcessId)) | Select-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-```
-
-### One-Time Backend Injection Test (Windows PowerShell)
-
-Backend must be running on localhost:8000.
-
-```powershell
-$base = "http://localhost:8000"; Invoke-RestMethod -Method Post -Uri "$base/stop-agent" | Out-Null; $inject = Invoke-RestMethod -Method Post -Uri "$base/inject-chaos"; $cycle = Invoke-RestMethod -Method Post -Uri "$base/run-cycle"; $issues = Invoke-RestMethod -Method Get -Uri "$base/active-issues"; $audit = Invoke-RestMethod -Method Get -Uri "$base/audit-log"; "Injected failures: $($inject.failures_injected.Count) | Issues processed in one cycle: $($cycle.issues_processed) | Remaining active issues: $($issues.issues.Count) | Audit entries written: $($audit.Count)"
-```
-
-### Test Suite
-
-```bash
-python tests/test_api.py
-```
-
----
 
 ## Project Structure
 
 ```text
 process-autopsy-agent/
+├── ARCHITECTURE.md
+├── DEMO.md
+├── LICENSE
+├── README.md
 ├── backend/
 │   ├── main.py
-│   ├── db.py
 │   ├── graph.py
-│   ├── agents/
-│   └── autopsy.db
+│   ├── db.py
+│   └── agents/
+├── frontend-react/
+│   ├── package.json
+│   └── src/
 ├── docs/
 │   ├── system-architecture.md
 │   ├── component-diagram.mmd
 │   └── workflow-sequence.mmd
-├── frontend-react/
-│   ├── src/
-│   └── package.json
 ├── tests/
-│   └── test_api.py
 └── requirements.txt
 ```
 
----
+## License
 
-## Latest UX Update
-
-- Solved issue drawer is presented as System Intervention.
-- Intervention view highlights Cause, System Impact, and Outcome.
-- Status badge is shown as Auto-fixed, Waiting on user, or Escalated.
-- Confidence is displayed as a percentage when present in audit data.
+This project is released under the MIT License. See [LICENSE](LICENSE).

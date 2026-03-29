@@ -8,7 +8,14 @@ const api = axios.create({
 });
 
 export const fetchWorkflows = () => api.get("/workflows");
-export const fetchAuditLog = () => api.get("/audit-log");
+export const fetchAuditLog = () =>
+  api.get("/audit-log", {
+    params: { _: Date.now() },
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  });
 export const fetchActiveIssues = () => api.get("/active-issues");
 export const fetchEscalations = () => api.get("/escalations");
 export const fetchStallPatterns = () => api.get("/stall-patterns");

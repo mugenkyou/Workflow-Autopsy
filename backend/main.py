@@ -8,7 +8,7 @@ from typing import List, Optional
 import random
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -270,8 +270,12 @@ def get_workflows():
 
 
 @app.get("/audit-log", response_model=List[AuditLogEntry])
-def get_audit_log():
+def get_audit_log(response: Response):
     """Return the last 50 audit log entries, newest first."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     conn = get_connection()
     cursor = conn.cursor()
 

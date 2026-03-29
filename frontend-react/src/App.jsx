@@ -103,7 +103,7 @@ export default function App() {
       }
     };
     pollAudit();
-    const interval = setInterval(pollAudit, 5000);
+    const interval = setInterval(pollAudit, 3000);
     return () => clearInterval(interval);
   }, []);
 

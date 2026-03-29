@@ -24,7 +24,7 @@ export default function WorkflowHeatmap({
       case "completed":
         return "#6b7280";
       case "duplicate_hold":
-        return "#f59e0b";
+        return "#10b981";
       default:
         return "#6b7280";
     }

@@ -87,6 +87,9 @@ export default function StallInsights({ patterns }) {
                 </div>
 
                 <div className="pattern-metric">
+                  <span className="rate-label" style={{ color }}>
+                    {Math.round(pattern.stall_rate * 100)}%
+                  </span>
                   <div className="bar-container">
                     <div
                       className="bar-fill"
@@ -96,9 +99,6 @@ export default function StallInsights({ patterns }) {
                       }}
                     ></div>
                   </div>
-                  <span className="rate-label" style={{ color }}>
-                    risk
-                  </span>
                 </div>
               </div>
             );

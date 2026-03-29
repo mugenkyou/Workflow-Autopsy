@@ -111,11 +111,9 @@
 }
 
 .stall-insights-section {
-  padding: 1rem 2rem;
-  background: #0f1535;
+  padding: 1.25rem 2rem 1.5rem;
+  background: linear-gradient(180deg, #0f1535 0%, #0c1230 100%);
   border-top: 1px solid #1e2749;
-  max-height: 260px;
-  overflow-y: auto;
 }
 
 @media (max-width: 1200px) {

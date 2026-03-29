@@ -1,65 +1,94 @@
-# Architecture
+# Process Autopsy Agent - System Architecture
+
+Autonomous system for detecting, diagnosing, and resolving workflow failures in real time.
 
 ## System Overview
 
-Process Autopsy Agent is an autonomous workflow recovery platform that detects operational disruptions, diagnoses likely causes, executes deterministic remediation, and produces a complete audit record for every intervention. The design emphasizes operational consistency, explainability, and fast recovery under risk.
+Process Autopsy Agent continuously monitors purchase-to-pay workflows, detects stalled steps, and executes policy-safe remediation without waiting for manual triage. It exists to reduce payment delays, prevent SLA breaches, and provide operators with immediate visibility into why each intervention happened. The system combines autonomous execution with strict deterministic controls: diagnosis can be AI-assisted, but action selection remains rule-bound and auditable. Every issue lifecycle is persisted as evidence, so the platform is explainable under operational and compliance review. Over time, historical stall behavior feeds a learning loop that improves prioritization and intervention quality.
 
-## Agent Breakdown
+## Architecture Diagram
+
+```mermaid
+flowchart LR
+	U[User: Break It / Stop Agent] --> FE[React Dashboard]
+	FE --> API[FastAPI Layer]
+
+	DB[(SQLite: workflows, steps, audit_log, stall_patterns, escalations)] --> M[MonitorAgent]
+	M --> D[DiagnosisAgent\nLLM-assisted reasoning]
+	D --> A[ActionAgent\nDeterministic action mapping]
+	A --> AU[AuditAgent]
+	AU --> DB
+	AU --> L[Stall Pattern Learning]
+	L --> DB
+
+	API --> M
+	API --> DB
+	DB --> API
+	API --> FE
+```
+
+## Agent Roles
 
 ### MonitorAgent
 
-Detects active workflow disruptions from status, SLA timing, and risk conditions. Produces ranked issue candidates for orchestration.
+Reads workflow and step state, identifies overdue or stalled items, and computes risk_score for prioritization. Emits normalized issue objects for downstream processing.
 
 ### DiagnosisAgent
 
-Classifies disruption cause using contextual reasoning and confidence scoring. Generates structured diagnosis output that remains policy-compatible.
+Classifies root cause categories using contextual reasoning and confidence scoring. Uses LLM output when valid, then applies normalization and deterministic fallback when needed.
 
 ### ActionAgent
 
-Executes deterministic remediation policy based on diagnosis class. The action path is controlled by deterministic mappings, not unconstrained LLM output.
+Executes deterministic remediation mapped from diagnosis class to approved operational actions. Applies state transitions directly to the database and records escalation packets when required.
 
 ### AuditAgent
 
-Writes immutable intervention records, including action, reasoning, confidence, timestamps, and workflow context.
+Writes a complete decision record per processed issue, including workflow context, action, reasoning, confidence, and timestamp. Serves as the source of truth for traceability and UI explainability.
 
-## Data Flow
+## Communication Flow
 
-Issue -> Diagnosis -> Action -> Audit -> Learning
+1. MonitorAgent identifies a stalled issue from current workflow/step state and queue order.
+2. DiagnosisAgent classifies root cause and returns stall_type, reasoning, and confidence.
+3. ActionAgent executes the mapped corrective action and updates workflow/step status.
+4. AuditAgent logs the final decision and outcome in audit_log.
+5. Learning updates stall_patterns using observed behavior and action outcomes.
 
-1. MonitorAgent emits issue context.
-2. DiagnosisAgent classifies root cause.
-3. ActionAgent applies policy-driven correction.
-4. AuditAgent records lifecycle evidence.
-5. Learning signals are updated from action outcomes and stall patterns.
+Each issue is processed exactly once per cycle by combining queue-level tracking with audit_log guards, preventing duplicate handling and looped reprocessing.
 
-## Database Tables
+## Tooling and Integrations
 
-### workflows
+### FastAPI
 
-Workflow headers and top-level status.
+Exposes operational endpoints such as /run-cycle, /active-issues, /audit-log, /inject-chaos, and /stop-agent. Provides the control plane for UI actions and autonomous cycle execution.
 
-### steps
+### SQLite
 
-Per-workflow step lifecycle, assignee, SLA metadata, and progression state.
+Persists workflows, steps, audit decisions, stall patterns, and escalations in a single transactional store. Enables deterministic reads/writes and reproducible state transitions.
 
-### audit_log
+### LLM (Mistral via Ollama)
 
-Decision journal with action, reasoning, confidence, and timestamps.
+Used only in DiagnosisAgent to improve classification reasoning quality. It does not directly mutate state, execute actions, or bypass deterministic policy controls.
 
-### stall_patterns
+### React Dashboard
 
-Historical disruption patterns used to improve prioritization and diagnosis quality.
+Displays workflow heatmap, active risk queue, solved issues, audit timeline, and learned stall patterns. Also provides operator controls for injecting failures and controlling autonomous runs.
 
-### escalations
+LLM output informs diagnosis quality; it does not control actions.
 
-Human-review queue for high-severity or dependency-blocked cases.
+## Error Handling and Reliability
 
-## Key Design Decisions
+- LLM timeout triggers deterministic fallback classification with bounded latency.
+- Invalid or malformed diagnosis outputs are normalized or rejected before action mapping.
+- Duplicate processing is blocked through audit_log existence checks and per-cycle processed issue keys.
+- Each issue is processed once per cycle, eliminating re-entry loops.
+- Cycle-level locking prevents concurrent run-cycle execution and race conditions.
 
-- Deterministic actions: diagnosis informs action class, but execution remains policy-bound.
-- Audit-first design: every intervention is recorded for traceability and review.
-- Learning loop: historical pattern signals improve future prioritization and response consistency.
+This architecture prioritizes determinism under failure: the system remains stable and operational even when AI services are slow or unavailable.
 
-## Why This Matters
+## Learning Loop (Stall Patterns)
 
-Operational workflow disruptions create payment delays, approval bottlenecks, and financial risk. This system reduces recovery time by combining autonomous detection, deterministic remediation, and transparent decision evidence, enabling teams to recover faster while maintaining control and auditability.
+The platform records historical stall patterns by approver, condition, and observed stall rate in stall_patterns. These signals help prioritize risk and improve diagnosis context in future cycles. As evidence accumulates, the system shifts from purely reactive handling to proactive intervention biasing.
+
+## Why This Architecture Matters
+
+It reduces manual intervention by turning recurring workflow failures into autonomous, policy-safe decisions. It prioritizes financial risk using explicit scoring and deterministic action execution. It provides explainable automation through a complete audit trail for every lifecycle step. It mirrors enterprise operations by combining reliability controls, operational visibility, and continuous learning in one production-ready loop.

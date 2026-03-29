@@ -111,6 +111,7 @@ export default function App() {
   const dismissedUntilRef = useRef(new Map());
   const activeIssueMapRef = useRef(new Map());
   const auditLogRef = useRef([]);
+  const sessionStartMsRef = useRef(Date.now());
   const resolutionLockedRef = useRef(false);
   const seenInjectedIssuesRef = useRef(false);
 
@@ -160,7 +161,16 @@ export default function App() {
         console.log("Fetching audit log...");
         const res = await fetchAuditLog();
         console.log("Audit log response:", res.data);
-        setAuditLog((prev) => mergeAuditHistory(prev, res.data));
+
+        // Keep the dashboard session-scoped so stale DB history is not shown on fresh load.
+        const sessionScoped = (Array.isArray(res.data) ? res.data : []).filter(
+          (entry) => {
+            const ts = Date.parse(entry?.timestamp || "") || 0;
+            return ts >= sessionStartMsRef.current;
+          },
+        );
+
+        setAuditLog((prev) => mergeAuditHistory(prev, sessionScoped));
         setApiErrors((prev) => ({ ...prev, audit: null }));
       } catch (err) {
         console.error("Audit log fetch error:", err.message);

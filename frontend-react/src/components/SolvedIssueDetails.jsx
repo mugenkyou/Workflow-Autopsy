@@ -12,7 +12,7 @@ const SYSTEM_IMPACT = {
 
 const ACTION_OUTCOME = {
   request_data: {
-    text: "Waiting for input from assignee.",
+    text: "Requested required data; workflow will resume once input is provided.",
     stepStatus: "pending_data",
     workflowStatus: "waiting_for_data",
   },
@@ -22,8 +22,8 @@ const ACTION_OUTCOME = {
     workflowStatus: "on_track",
   },
   flag_duplicate: {
-    text: "Duplicate hold applied.",
-    stepStatus: "duplicate_hold",
+    text: "System intervention prevented duplicate processing.",
+    stepStatus: "completed",
     workflowStatus: "duplicate_hold",
   },
   escalate_sla: {
@@ -124,7 +124,12 @@ function getLatestAuditEntry(auditLog, workflowId, stepId) {
   return latest;
 }
 
-export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onClose }) {
+export default function SolvedIssueDetails({
+  issue,
+  auditLog = [],
+  workflow,
+  onClose,
+}) {
   if (!issue) return null;
 
   const failureTypeColor = {
@@ -140,8 +145,7 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
     issue.step_id,
   );
 
-  const diagnosisReasoning =
-    improveReasoningText(relatedAuditEntry?.reasoning);
+  const diagnosisReasoning = improveReasoningText(relatedAuditEntry?.reasoning);
   const actionTaken = relatedAuditEntry?.action || "unavailable";
   const impactDetails =
     SYSTEM_IMPACT[actionTaken] ||
@@ -153,12 +157,20 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
   const actionOutcome = ACTION_OUTCOME[actionTaken] || null;
 
   const finalStepStatus =
-    actionOutcome?.stepStatus || workflow?.current_step?.status || "Unavailable";
+    actionOutcome?.stepStatus ||
+    workflow?.current_step?.status ||
+    "Unavailable";
   const finalWorkflowStatus =
     actionOutcome?.workflowStatus || workflow?.status || "Unavailable";
+  const isResolved = ["completed", "rejected", "escalated"].includes(
+    String(finalStepStatus).toLowerCase(),
+  );
   const outcomeText =
     actionOutcome?.text || mapOutcome(finalStepStatus, finalWorkflowStatus);
-  const statusBadge = getStatusBadge(finalStepStatus, finalWorkflowStatus);
+  const statusBadge =
+    actionTaken === "flag_duplicate"
+      ? { label: "System Intervention: Duplicate Prevented", tone: "autofixed" }
+      : getStatusBadge(finalStepStatus, finalWorkflowStatus);
 
   return (
     <div className="solved-details-overlay" onClick={onClose}>
@@ -220,11 +232,11 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
 
           {/* Timestamp */}
           <div className="detail-section">
-            <label>Resolved At</label>
+            <label>{isResolved ? "Resolved At" : "In Progress"}</label>
             <p>
-              {issue.resolvedAt
+              {isResolved && issue.resolvedAt
                 ? new Date(issue.resolvedAt).toLocaleString()
-                : "—"}
+                : "Awaiting completion"}
             </p>
           </div>
 
@@ -269,14 +281,13 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
           <div className="detail-section">
             <label>Outcome</label>
             <div className="summary-box">
-              <p>
-                {outcomeText}
-              </p>
+              <p>{outcomeText}</p>
               <p>
                 <strong>Step Status:</strong> {formatType(finalStepStatus)}
               </p>
               <p>
-                <strong>Workflow Status:</strong> {formatType(finalWorkflowStatus)}
+                <strong>Workflow Status:</strong>{" "}
+                {formatType(finalWorkflowStatus)}
               </p>
               <p>
                 <strong>Updated:</strong>{" "}

@@ -8,7 +8,7 @@ from typing import List, Optional
 import random
 import uuid
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -270,8 +270,8 @@ def get_workflows():
 
 
 @app.get("/audit-log", response_model=List[AuditLogEntry])
-def get_audit_log(response: Response):
-    """Return the last 50 audit log entries, newest first."""
+def get_audit_log(response: Response, limit: int = Query(default=300, ge=10, le=1000)):
+    """Return recent audit log entries, newest first."""
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -281,7 +281,8 @@ def get_audit_log(response: Response):
 
     rows = cursor.execute(
         "SELECT id, workflow_id, step_id, agent_name, action, reasoning, confidence, timestamp "
-        "FROM audit_log ORDER BY timestamp DESC LIMIT 50"
+        "FROM audit_log ORDER BY timestamp DESC LIMIT ?",
+        (int(limit),),
     ).fetchall()
 
     entries = [

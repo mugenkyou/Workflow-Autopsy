@@ -75,6 +75,7 @@ class DiagnosisAgent:
         is_payment = "payment" in step_lower
         is_invoice = "invoice" in step_lower
         is_approval = "approval" in step_lower
+        risk_score = self._to_float(issue.get("risk_score"), 0.0)
         external_signal = any(token in failure_type for token in ["sla_breach", "external"]) 
 
         # Duplicate signal must remain duplicate-focused.
@@ -85,6 +86,20 @@ class DiagnosisAgent:
                 "duplicate_invoice",
                 confidence,
                 "duplicate indicator present in failure metadata or step context",
+            )
+
+        # High-risk issues should use urgent, decisive actions.
+        if risk_score > 3000:
+            if hours > 10 and (external_signal or (is_payment and not is_approval)):
+                return (
+                    "external_hold",
+                    self._band_confidence(issue, 0.70, 0.78),
+                    "risk is extreme and delay exceeds escalation threshold with external dependency evidence",
+                )
+            return (
+                "wrong_approver",
+                self._band_confidence(issue, 0.76, 0.84),
+                "risk is extreme and internal routing correction is the fastest high-impact intervention",
             )
 
         # Internal delay on approvals should prefer routing correction over escalation.

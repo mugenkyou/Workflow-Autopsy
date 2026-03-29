@@ -10,7 +10,7 @@ const api = axios.create({
 export const fetchWorkflows = () => api.get("/workflows");
 export const fetchAuditLog = () =>
   api.get("/audit-log", {
-    params: { _: Date.now() },
+    params: { _: Date.now(), limit: 300 },
     headers: {
       "Cache-Control": "no-cache",
       Pragma: "no-cache",

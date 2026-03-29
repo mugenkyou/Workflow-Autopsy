@@ -17,7 +17,7 @@ const TERMINAL_ACTIONS = new Set([
 
 const ACTION_STATUS_DISPLAY = {
   request_data: {
-    result: "Waiting for input",
+    result: "Requested required data to resume processing",
     stepStatus: "pending_data",
     workflowStatus: "waiting_for_data",
   },
@@ -97,7 +97,7 @@ export default function IssueDetails({
   const resultLabel = actionStatus?.result
     ? actionStatus.result
     : isStillActive || !isTerminalAction
-      ? "Monitoring / in progress"
+      ? "Tracking progress while awaiting dependency resolution"
       : "Issue resolved";
   const resultTimeLabel = isTerminalAction ? "Completed" : "In progress";
 

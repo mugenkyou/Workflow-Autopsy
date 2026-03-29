@@ -16,25 +16,66 @@ export default function AuditTrail({ logs }) {
     return bTs - aTs;
   });
 
+  const expandedEvents = sortedLogs.flatMap((log, idx) => {
+    const baseId =
+      log.id ||
+      `${log.timestamp || "ts"}-${log.workflow_id || "wf"}-${log.step_id || "step"}-${idx}`;
+
+    const context = [log.workflow_id, log.step_id].filter(Boolean).join(" / ");
+    const contextText = context ? ` (${context})` : "";
+
+    return [
+      {
+        ...log,
+        id: `${baseId}:diagnosis`,
+        agent_name: "DiagnosisAgent",
+        action: `classified:${log.action || "unknown"}`,
+        reasoning:
+          log.reasoning || `Diagnosed issue and selected action${contextText}.`,
+        confidence: log.confidence,
+        _order: 0,
+      },
+      {
+        ...log,
+        id: `${baseId}:action`,
+        agent_name: "ActionAgent",
+        action: log.action || "execute_action",
+        reasoning: `Executed corrective action${contextText}.`,
+        confidence: null,
+        _order: 1,
+      },
+      {
+        ...log,
+        id: `${baseId}:audit`,
+        agent_name: "AuditAgent",
+        action: "audit_recorded",
+        reasoning: `Captured lifecycle record${contextText}.`,
+        confidence: null,
+        _order: 2,
+      },
+    ];
+  });
+
+  expandedEvents.sort((a, b) => {
+    const aTs = Date.parse(a?.timestamp || "") || 0;
+    const bTs = Date.parse(b?.timestamp || "") || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return (a._order || 0) - (b._order || 0);
+  });
+
   return (
     <div className="audit-trail">
       <div className="trail-header">
         <h3>Audit Trail</h3>
-        <span className="log-count">{logs.length} events</span>
+        <span className="log-count">{expandedEvents.length} events</span>
       </div>
 
       <div className="trail-events">
-        {sortedLogs.length === 0 ? (
+        {expandedEvents.length === 0 ? (
           <p className="empty">No audit events</p>
         ) : (
-          sortedLogs.map((log, idx) => (
-            <div
-              key={
-                log.id ||
-                `${log.timestamp || "ts"}-${log.workflow_id || "wf"}-${log.step_id || "step"}-${idx}`
-              }
-              className="event"
-            >
+          expandedEvents.map((log) => (
+            <div key={log.id} className="event">
               <div
                 className="event-marker"
                 style={{ background: getAgentColor(log.agent_name) }}

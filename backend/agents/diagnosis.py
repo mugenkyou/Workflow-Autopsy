@@ -52,6 +52,20 @@ class DiagnosisAgent:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _issue_seed(issue: dict[str, Any]) -> int:
+        key = f"{issue.get('workflow_id', '')}:{issue.get('step_id', '')}"
+        return sum(ord(ch) for ch in key)
+
+    def _band_confidence(self, issue: dict[str, Any], low: float, high: float) -> float:
+        """Deterministic confidence variation inside a requested band."""
+        if high <= low:
+            return low
+        steps = 5
+        seed = self._issue_seed(issue) % steps
+        value = low + ((high - low) * (seed / (steps - 1)))
+        return round(value, 2)
+
     def _calibrate(self, issue: dict[str, Any], proposed_type: str) -> tuple[str, float, str]:
         """Return calibrated (stall_type, confidence, cause) from issue context."""
         step_name = str(issue.get("step_name", ""))
@@ -61,29 +75,44 @@ class DiagnosisAgent:
         is_payment = "payment" in step_lower
         is_invoice = "invoice" in step_lower
         is_approval = "approval" in step_lower
+        risk_score = self._to_float(issue.get("risk_score"), 0.0)
         external_signal = any(token in failure_type for token in ["sla_breach", "external"]) 
 
         # Duplicate signal must remain duplicate-focused.
         if "duplicate" in failure_type or "duplicate" in step_lower:
             clear_duplicate = "duplicate" in failure_type
-            confidence = 0.80 if clear_duplicate else 0.70
+            confidence = self._band_confidence(issue, 0.80, 0.85) if clear_duplicate else self._band_confidence(issue, 0.75, 0.80)
             return (
                 "duplicate_invoice",
                 confidence,
                 "duplicate indicator present in failure metadata or step context",
             )
 
+        # High-risk issues should use urgent, decisive actions.
+        if risk_score > 3000:
+            if hours > 10 and (external_signal or (is_payment and not is_approval)):
+                return (
+                    "external_hold",
+                    self._band_confidence(issue, 0.70, 0.78),
+                    "risk is extreme and delay exceeds escalation threshold with external dependency evidence",
+                )
+            return (
+                "wrong_approver",
+                self._band_confidence(issue, 0.76, 0.84),
+                "risk is extreme and internal routing correction is the fastest high-impact intervention",
+            )
+
         # Internal delay on approvals should prefer routing correction over escalation.
         if is_approval and hours > 20:
             return (
                 "wrong_approver",
-                0.85,
+                self._band_confidence(issue, 0.80, 0.85),
                 "approval delay is severe and points to incorrect routing or overloaded approver ownership",
             )
         if is_approval and 10 <= hours <= 20:
             return (
                 "wrong_approver",
-                0.75,
+                self._band_confidence(issue, 0.75, 0.80),
                 "approval queue age indicates routing friction that can be corrected internally",
             )
 
@@ -91,13 +120,13 @@ class DiagnosisAgent:
         if (is_payment or is_invoice) and hours < 3:
             return (
                 "missing_data",
-                0.60,
+                self._band_confidence(issue, 0.65, 0.70),
                 "delay window is short and consistent with incomplete submission data",
             )
         if (is_payment or is_invoice) and 3 <= hours <= 6:
             return (
                 "missing_data",
-                0.65,
+                self._band_confidence(issue, 0.68, 0.74),
                 "moderate delay in payment/invoice processing is consistent with missing supporting fields",
             )
 
@@ -105,7 +134,7 @@ class DiagnosisAgent:
         if (is_payment or is_invoice) and 6 < hours <= 10:
             return (
                 "wrong_approver" if self._cycle_counts.get("wrong_approver", 0) < self._cycle_counts.get("missing_data", 0) else "missing_data",
-                0.70 if self._cycle_counts.get("wrong_approver", 0) < self._cycle_counts.get("missing_data", 0) else 0.68,
+                self._band_confidence(issue, 0.70, 0.75) if self._cycle_counts.get("wrong_approver", 0) < self._cycle_counts.get("missing_data", 0) else self._band_confidence(issue, 0.67, 0.72),
                 "delay sits in the medium band where internal rerouting or data completion can still unblock",
             )
 
@@ -113,7 +142,7 @@ class DiagnosisAgent:
         if hours > 10 and external_signal and not is_approval:
             return (
                 "external_hold",
-                0.70,
+                self._band_confidence(issue, 0.65, 0.72),
                 "delay exceeds the internal fix window and failure metadata shows an external dependency block",
             )
 
@@ -121,13 +150,13 @@ class DiagnosisAgent:
         if hours > 10 and is_approval:
             return (
                 "wrong_approver",
-                0.78,
+                self._band_confidence(issue, 0.75, 0.82),
                 "extended approval delay is still actionable through internal routing correction",
             )
         if hours > 10:
             return (
                 "missing_data",
-                0.66,
+                self._band_confidence(issue, 0.65, 0.72),
                 "long-running delay lacks external dependency evidence and is treated as internal information blockage",
             )
 
@@ -136,12 +165,12 @@ class DiagnosisAgent:
         if fallback_type == "duplicate_invoice":
             return (
                 "duplicate_invoice",
-                0.75,
+                self._band_confidence(issue, 0.75, 0.80),
                 "duplicate signal is present and requires duplicate validation handling",
             )
         return (
             fallback_type if fallback_type in ALLOWED_TYPES else "missing_data",
-            0.60,
+            self._band_confidence(issue, 0.50, 0.60),
             "missing or incomplete information is blocking normal progression",
         )
 
@@ -210,28 +239,28 @@ class DiagnosisAgent:
 
         if stall_type == "missing_data":
             if style in {0, 2}:
-                return f"{assignee} has {hours:.1f}h overdue on {step_name}; delay of {hours:.1f}h maps to missing data that is blocking progression."
-            return f"On {step_name}, {assignee} is {hours:.1f}h overdue and the blockage is incomplete input fields, so request_data is the direct recovery path."
+                return f"{assignee} has {hours:.1f}h delay on {step_name}; incomplete input fields detected -> requested required data to resume processing."
+            return f"{assignee} has {hours:.1f}h delay on {step_name}; missing submission details identified -> requested required data to resume processing."
 
         if stall_type == "wrong_approver":
             if style in {1, 3}:
-                return f"{assignee} is {hours:.1f}h overdue on {step_name}; approval delay points to incorrect routing or approver overload, so reroute_approver is selected."
-            return f"For {step_name}, {assignee} has {hours:.1f}h overdue and the queue pattern shows routing friction, so internal reassignment is required."
+                return f"{assignee} has {hours:.1f}h delay on {step_name}; approval routing friction detected -> reassigned to alternate approver."
+            return f"{assignee} has {hours:.1f}h delay on {step_name}; incorrect routing or approver overload identified -> reroute_approver applied."
 
         if stall_type == "duplicate_invoice":
             if style in {0, 3}:
-                return f"{assignee} has {hours:.1f}h overdue on {step_name}; duplicate signal detected from metadata requires a validation hold before continuation."
-            return f"{step_name} for {assignee} is {hours:.1f}h overdue and duplicate markers are present, so duplicate_invoice control is applied."
+                return f"{assignee} has {hours:.1f}h delay on {step_name}; duplicate markers found in metadata -> validation hold applied."
+            return f"{assignee} has {hours:.1f}h delay on {step_name}; duplicate signal confirmed from metadata -> duplicate hold applied."
 
         if stall_type == "external_hold":
             if style in {1, 2}:
-                return f"{assignee} is {hours:.1f}h overdue on {step_name}; extended delay indicates dependency outside current workflow control, so escalation is necessary."
-            return f"At {step_name}, {assignee} has {hours:.1f}h overdue and external dependency evidence is present, so the case is escalated."
+                return f"{assignee} has {hours:.1f}h delay on {step_name}; external dependency detected -> escalated for cross-team intervention."
+            return f"{assignee} has {hours:.1f}h delay on {step_name}; dependency outside workflow control identified -> escalation initiated."
 
         if stall_type == "amount_variance":
-            return f"{assignee} has {hours:.1f}h overdue on {step_name}; amount variance validation failed, so variance rejection handling is required."
+            return f"{assignee} has {hours:.1f}h delay on {step_name}; amount variance breach detected -> rejected to prevent incorrect payout."
 
-        return f"{assignee} has {hours:.1f}h overdue on {step_name}; {cause}."
+        return f"{assignee} has {hours:.1f}h delay on {step_name}; {cause} -> corrective action selected."
 
     def _finalize(self, issue: dict[str, Any], proposed_type: str) -> dict[str, Any]:
         stall_type, confidence, cause = self._calibrate(issue, proposed_type)
@@ -425,13 +454,19 @@ class DiagnosisAgent:
         if fallback["stall_type"] not in ALLOWED_TYPES:
             fallback["stall_type"] = "missing_data"
         if fallback["stall_type"] == "duplicate_invoice":
-            fallback["confidence"] = max(float(fallback.get("confidence", 0.75)), 0.75)
+            fallback["confidence"] = max(float(fallback.get("confidence", self._band_confidence(issue, 0.75, 0.85))), 0.75)
+        elif fallback["stall_type"] == "wrong_approver":
+            fallback["confidence"] = max(float(fallback.get("confidence", self._band_confidence(issue, 0.75, 0.82))), 0.75)
+        elif fallback["stall_type"] == "missing_data":
+            fallback["confidence"] = self._band_confidence(issue, 0.65, 0.72)
+        elif fallback["stall_type"] == "external_hold":
+            fallback["confidence"] = self._band_confidence(issue, 0.50, 0.60)
         else:
-            fallback["confidence"] = min(float(fallback.get("confidence", 0.60)), 0.60)
+            fallback["confidence"] = self._band_confidence(issue, 0.50, 0.60)
         if fallback["stall_type"] == "missing_data":
             fallback["reasoning"] = (
-                f"{str(issue.get('assignee') or 'Unassigned')} has {self._to_float(issue.get('hours_overdue'), 0.0):.1f}h overdue on "
-                f"{str(issue.get('step_name') or 'Unknown Step')}; delay of {self._to_float(issue.get('hours_overdue'), 0.0):.1f}h maps to missing or incomplete information blocking progression."
+                f"{str(issue.get('assignee') or 'Unassigned')} has {self._to_float(issue.get('hours_overdue'), 0.0):.1f}h delay on "
+                f"{str(issue.get('step_name') or 'Unknown Step')}; missing or incomplete information identified -> requested required data to resume processing."
             )
         return fallback
 

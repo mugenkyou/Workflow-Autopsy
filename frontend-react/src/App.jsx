@@ -20,6 +20,16 @@ import SolvedIssueDetails from "./components/SolvedIssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
+const ACTION_STEP_STATUS = {
+  request_data: "pending_data",
+  reroute_approver: "in_progress",
+  flag_duplicate: "completed",
+  escalate_sla: "escalated",
+  auto_reject: "rejected",
+};
+
+const RESOLVED_STEP_STATUSES = new Set(["completed", "rejected", "escalated"]);
+
 function compareByTimestampDesc(a, b) {
   const aTs = Date.parse(a?.timestamp || "") || 0;
   const bTs = Date.parse(b?.timestamp || "") || 0;
@@ -46,6 +56,10 @@ function getLatestEntryForIssue(entries, workflowId, stepId) {
   }
 
   return latest;
+}
+
+function getDerivedStepStatus(actionTaken) {
+  return ACTION_STEP_STATUS[String(actionTaken || "")] || "completed";
 }
 
 function mergeAuditHistory(previous, incoming) {
@@ -184,6 +198,7 @@ export default function App() {
         );
 
         const resolvedNow = [];
+        const stillInProgress = [];
         activeIssueMapRef.current.forEach((oldIssue, key) => {
           if (!incomingMap.has(key)) {
             const latestAudit = getLatestEntryForIssue(
@@ -191,17 +206,36 @@ export default function App() {
               oldIssue.workflow_id,
               oldIssue.step_id,
             );
+            const actionTaken = String(
+              latestAudit?.action || oldIssue.action_taken || "",
+            );
+            const derivedStepStatus = getDerivedStepStatus(actionTaken);
+
+            if (!RESOLVED_STEP_STATUSES.has(derivedStepStatus)) {
+              stillInProgress.push({
+                ...oldIssue,
+                action_taken: actionTaken,
+                derived_step_status: derivedStepStatus,
+              });
+              return;
+            }
+
             resolvedNow.push({
               id: `${key}-${Date.now()}`,
               ...oldIssue,
               resolvedAt: new Date().toISOString(),
-              action_taken: String(latestAudit?.action || oldIssue.action_taken || ""),
+              action_taken: actionTaken,
+              derived_step_status: derivedStepStatus,
             });
           }
         });
 
         if (resolvedNow.length > 0) {
           setSolvedIssues((prev) => [...resolvedNow, ...prev].slice(0, 25));
+        }
+
+        for (const issue of stillInProgress) {
+          incomingMap.set(`${issue.workflow_id}|${issue.step_id}`, issue);
         }
 
         activeIssueMapRef.current = incomingMap;

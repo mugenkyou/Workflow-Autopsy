@@ -10,6 +10,34 @@ const SYSTEM_IMPACT = {
   action_error: "Recorded an exception and flagged it for follow-up.",
 };
 
+const ACTION_OUTCOME = {
+  request_data: {
+    text: "Waiting for input from assignee.",
+    stepStatus: "pending_data",
+    workflowStatus: "waiting_for_data",
+  },
+  reroute_approver: {
+    text: "Reassigned and progressing.",
+    stepStatus: "in_progress",
+    workflowStatus: "on_track",
+  },
+  flag_duplicate: {
+    text: "Duplicate hold applied.",
+    stepStatus: "duplicate_hold",
+    workflowStatus: "duplicate_hold",
+  },
+  escalate_sla: {
+    text: "Escalated to human review.",
+    stepStatus: "escalated",
+    workflowStatus: "escalated",
+  },
+  auto_reject: {
+    text: "Rejected after validation.",
+    stepStatus: "rejected",
+    workflowStatus: "rejected",
+  },
+};
+
 function formatTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -74,6 +102,28 @@ function getStatusBadge(stepStatus, workflowStatus) {
   return { label: "Auto-fixed", tone: "autofixed" };
 }
 
+function getLatestAuditEntry(auditLog, workflowId, stepId) {
+  if (!Array.isArray(auditLog)) {
+    return null;
+  }
+
+  let latest = null;
+  let latestTs = -1;
+
+  for (const entry of auditLog) {
+    if (entry?.workflow_id !== workflowId || entry?.step_id !== stepId) {
+      continue;
+    }
+    const ts = Date.parse(entry?.timestamp || "") || 0;
+    if (ts >= latestTs) {
+      latest = entry;
+      latestTs = ts;
+    }
+  }
+
+  return latest;
+}
+
 export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onClose }) {
   if (!issue) return null;
 
@@ -84,11 +134,11 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
     sla_breach: "#f59e0b",
   };
 
-  const relatedAuditEntry =
-    auditLog.find(
-      (entry) =>
-        entry.workflow_id === issue.workflow_id && entry.step_id === issue.step_id,
-    ) || null;
+  const relatedAuditEntry = getLatestAuditEntry(
+    auditLog,
+    issue.workflow_id,
+    issue.step_id,
+  );
 
   const diagnosisReasoning =
     improveReasoningText(relatedAuditEntry?.reasoning);
@@ -100,10 +150,14 @@ export default function SolvedIssueDetails({ issue, auditLog = [], workflow, onC
     typeof relatedAuditEntry?.confidence === "number"
       ? `${Math.round(relatedAuditEntry.confidence * 100)}% confidence`
       : null;
+  const actionOutcome = ACTION_OUTCOME[actionTaken] || null;
 
-  const finalStepStatus = workflow?.current_step?.status || "Unavailable";
-  const finalWorkflowStatus = workflow?.status || "Unavailable";
-  const outcomeText = mapOutcome(finalStepStatus, finalWorkflowStatus);
+  const finalStepStatus =
+    actionOutcome?.stepStatus || workflow?.current_step?.status || "Unavailable";
+  const finalWorkflowStatus =
+    actionOutcome?.workflowStatus || workflow?.status || "Unavailable";
+  const outcomeText =
+    actionOutcome?.text || mapOutcome(finalStepStatus, finalWorkflowStatus);
   const statusBadge = getStatusBadge(finalStepStatus, finalWorkflowStatus);
 
   return (

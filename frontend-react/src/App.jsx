@@ -20,6 +20,62 @@ import SolvedIssueDetails from "./components/SolvedIssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
+const TERMINAL_ACTIONS = new Set([
+  "flag_duplicate",
+  "escalate_sla",
+  "auto_reject",
+]);
+
+function compareByTimestampDesc(a, b) {
+  const aTs = Date.parse(a?.timestamp || "") || 0;
+  const bTs = Date.parse(b?.timestamp || "") || 0;
+  return bTs - aTs;
+}
+
+function getLatestEntryForIssue(entries, workflowId, stepId) {
+  if (!Array.isArray(entries) || !workflowId || !stepId) {
+    return null;
+  }
+
+  let latest = null;
+  let latestTs = -1;
+
+  for (const entry of entries) {
+    if (entry?.workflow_id !== workflowId || entry?.step_id !== stepId) {
+      continue;
+    }
+    const ts = Date.parse(entry?.timestamp || "") || 0;
+    if (ts >= latestTs) {
+      latest = entry;
+      latestTs = ts;
+    }
+  }
+
+  return latest;
+}
+
+function mergeAuditHistory(previous, incoming) {
+  const safePrev = Array.isArray(previous) ? previous : [];
+  const safeIncoming = Array.isArray(incoming) ? incoming : [];
+
+  const seenIds = new Set();
+  const merged = [];
+
+  // Keep latest backend rows first; only dedupe exact same id.
+  for (const entry of [...safeIncoming, ...safePrev]) {
+    const id = String(entry?.id || "").trim();
+    if (id) {
+      if (seenIds.has(id)) {
+        continue;
+      }
+      seenIds.add(id);
+    }
+    merged.push(entry);
+  }
+
+  return merged.sort(compareByTimestampDesc);
+}
+
 export default function App() {
   // Demo-stable flag: escalation UI and polling are disabled by default.
   const ENABLE_ESCALATION = false;
@@ -46,6 +102,7 @@ export default function App() {
   const shownEscalationIdsRef = useRef(new Set());
   const dismissedUntilRef = useRef(new Map());
   const activeIssueMapRef = useRef(new Map());
+  const auditLogRef = useRef([]);
   const resolutionLockedRef = useRef(false);
   const seenInjectedIssuesRef = useRef(false);
 
@@ -95,7 +152,7 @@ export default function App() {
         console.log("Fetching audit log...");
         const res = await fetchAuditLog();
         console.log("Audit log response:", res.data);
-        setAuditLog(res.data);
+        setAuditLog((prev) => mergeAuditHistory(prev, res.data));
         setApiErrors((prev) => ({ ...prev, audit: null }));
       } catch (err) {
         console.error("Audit log fetch error:", err.message);
@@ -106,6 +163,10 @@ export default function App() {
     const interval = setInterval(pollAudit, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    auditLogRef.current = auditLog;
+  }, [auditLog]);
 
   // Poll active issues every 5s
   useEffect(() => {
@@ -129,13 +190,29 @@ export default function App() {
         );
 
         const resolvedNow = [];
+        const carryForwardIssues = [];
         activeIssueMapRef.current.forEach((oldIssue, key) => {
           if (!incomingMap.has(key)) {
-            resolvedNow.push({
-              id: `${key}-${Date.now()}`,
-              ...oldIssue,
-              resolvedAt: new Date().toISOString(),
-            });
+            const latestAudit = getLatestEntryForIssue(
+              auditLogRef.current,
+              oldIssue.workflow_id,
+              oldIssue.step_id,
+            );
+            const actionTaken = String(latestAudit?.action || "");
+
+            if (TERMINAL_ACTIONS.has(actionTaken)) {
+              resolvedNow.push({
+                id: `${key}-${Date.now()}`,
+                ...oldIssue,
+                resolvedAt: new Date().toISOString(),
+                action_taken: actionTaken,
+              });
+            } else {
+              carryForwardIssues.push({
+                ...oldIssue,
+                action_taken: actionTaken || oldIssue.action_taken,
+              });
+            }
           }
         });
 
@@ -143,8 +220,12 @@ export default function App() {
           setSolvedIssues((prev) => [...resolvedNow, ...prev].slice(0, 25));
         }
 
+        for (const issue of carryForwardIssues) {
+          incomingMap.set(`${issue.workflow_id}|${issue.step_id}`, issue);
+        }
+
         activeIssueMapRef.current = incomingMap;
-        setActiveIssues(scopedIncomingIssues);
+        setActiveIssues(Array.from(incomingMap.values()));
 
         if (resolutionLockedRef.current) {
           if (scopedIncomingIssues.length > 0) {
@@ -395,11 +476,11 @@ export default function App() {
     : null;
 
   const selectedIssueAuditEntry = selectedIssue
-    ? auditLog.find(
-        (entry) =>
-          entry.workflow_id === selectedIssue.workflow_id &&
-          entry.step_id === selectedIssue.step_id,
-      ) || null
+    ? getLatestEntryForIssue(
+        auditLog,
+        selectedIssue.workflow_id,
+        selectedIssue.step_id,
+      )
     : null;
 
   const selectedIssueStillActive = selectedIssue

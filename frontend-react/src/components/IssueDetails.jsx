@@ -9,6 +9,40 @@ const ACTION_DETAILS = {
   action_error: "Action execution failed and was routed for immediate review.",
 };
 
+const TERMINAL_ACTIONS = new Set([
+  "flag_duplicate",
+  "escalate_sla",
+  "auto_reject",
+]);
+
+const ACTION_STATUS_DISPLAY = {
+  request_data: {
+    result: "Waiting for input",
+    stepStatus: "pending_data",
+    workflowStatus: "waiting_for_data",
+  },
+  reroute_approver: {
+    result: "Reassigned and progressing",
+    stepStatus: "in_progress",
+    workflowStatus: "on_track",
+  },
+  flag_duplicate: {
+    result: "Duplicate hold",
+    stepStatus: "duplicate_hold",
+    workflowStatus: "duplicate_hold",
+  },
+  escalate_sla: {
+    result: "Escalated to human",
+    stepStatus: "escalated",
+    workflowStatus: "escalated",
+  },
+  auto_reject: {
+    result: "Rejected",
+    stepStatus: "rejected",
+    workflowStatus: "rejected",
+  },
+};
+
 function formatTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -42,9 +76,9 @@ export default function IssueDetails({
 }) {
   if (!issue) return null;
 
-  const actionTaken = auditEntry?.action || "escalate_sla";
+  const actionTaken = String(auditEntry?.action || "unavailable");
   const actionDetails =
-    ACTION_DETAILS[actionTaken] || ACTION_DETAILS.escalate_sla;
+    ACTION_DETAILS[actionTaken] || "Awaiting action details.";
   const diagnosisType = issue.failure_type || "unknown";
   const diagnosisReasoning =
     auditEntry?.reasoning ||
@@ -53,6 +87,19 @@ export default function IssueDetails({
     typeof auditEntry?.confidence === "number"
       ? `${(auditEntry.confidence * 100).toFixed(0)}%`
       : "50%";
+  const actionStatus = ACTION_STATUS_DISPLAY[actionTaken] || null;
+  const isTerminalAction = TERMINAL_ACTIONS.has(actionTaken);
+
+  const displayStepStatus =
+    actionStatus?.stepStatus || workflow?.current_step?.status || "in_progress";
+  const displayWorkflowStatus =
+    actionStatus?.workflowStatus || workflow?.status || "in_progress";
+  const resultLabel = actionStatus?.result
+    ? actionStatus.result
+    : isStillActive || !isTerminalAction
+      ? "Monitoring / in progress"
+      : "Issue resolved";
+  const resultTimeLabel = isTerminalAction ? "Completed" : "In progress";
 
   const matchedPattern = stallPatterns.find(
     (pattern) =>
@@ -85,8 +132,8 @@ export default function IssueDetails({
     },
     {
       label: "Result",
-      detail: isStillActive ? "Monitoring / in progress" : "Issue resolved",
-      time: isStillActive ? "In progress" : "Completed",
+      detail: resultLabel,
+      time: resultTimeLabel,
     },
   ];
 
@@ -155,9 +202,7 @@ export default function IssueDetails({
           </div>
           <div>
             <span className="k">new_status</span>
-            <span className="v">
-              {workflow?.current_step?.status || "completed"}
-            </span>
+            <span className="v">{displayStepStatus}</span>
           </div>
           <div>
             <span className="k">details</span>
@@ -171,13 +216,11 @@ export default function IssueDetails({
         <div className="kv-grid single">
           <div>
             <span className="k">workflow status</span>
-            <span className="v">{workflow?.status || "on_track"}</span>
+            <span className="v">{displayWorkflowStatus}</span>
           </div>
           <div>
             <span className="k">step status after action</span>
-            <span className="v">
-              {workflow?.current_step?.status || "completed"}
-            </span>
+            <span className="v">{displayStepStatus}</span>
           </div>
         </div>
       </section>

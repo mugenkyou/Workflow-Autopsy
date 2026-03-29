@@ -208,7 +208,6 @@ export default function App() {
         );
 
         const resolvedNow = [];
-        const stillInProgress = [];
         activeIssueMapRef.current.forEach((oldIssue, key) => {
           if (!incomingMap.has(key)) {
             const latestAudit = getLatestEntryForIssue(
@@ -220,15 +219,6 @@ export default function App() {
               latestAudit?.action || oldIssue.action_taken || "",
             );
             const derivedStepStatus = getDerivedStepStatus(actionTaken);
-
-            if (!RESOLVED_STEP_STATUSES.has(derivedStepStatus)) {
-              stillInProgress.push({
-                ...oldIssue,
-                action_taken: actionTaken,
-                derived_step_status: derivedStepStatus,
-              });
-              return;
-            }
 
             resolvedNow.push({
               id: `${key}-${Date.now()}`,
@@ -242,10 +232,6 @@ export default function App() {
 
         if (resolvedNow.length > 0) {
           setSolvedIssues((prev) => [...resolvedNow, ...prev].slice(0, 25));
-        }
-
-        for (const issue of stillInProgress) {
-          incomingMap.set(`${issue.workflow_id}|${issue.step_id}`, issue);
         }
 
         activeIssueMapRef.current = incomingMap;

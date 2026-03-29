@@ -20,12 +20,6 @@ import SolvedIssueDetails from "./components/SolvedIssueDetails";
 import StallInsights from "./components/StallInsights";
 import "./App.css";
 
-const TERMINAL_ACTIONS = new Set([
-  "flag_duplicate",
-  "escalate_sla",
-  "auto_reject",
-]);
-
 function compareByTimestampDesc(a, b) {
   const aTs = Date.parse(a?.timestamp || "") || 0;
   const bTs = Date.parse(b?.timestamp || "") || 0;
@@ -190,7 +184,6 @@ export default function App() {
         );
 
         const resolvedNow = [];
-        const carryForwardIssues = [];
         activeIssueMapRef.current.forEach((oldIssue, key) => {
           if (!incomingMap.has(key)) {
             const latestAudit = getLatestEntryForIssue(
@@ -198,30 +191,17 @@ export default function App() {
               oldIssue.workflow_id,
               oldIssue.step_id,
             );
-            const actionTaken = String(latestAudit?.action || "");
-
-            if (TERMINAL_ACTIONS.has(actionTaken)) {
-              resolvedNow.push({
-                id: `${key}-${Date.now()}`,
-                ...oldIssue,
-                resolvedAt: new Date().toISOString(),
-                action_taken: actionTaken,
-              });
-            } else {
-              carryForwardIssues.push({
-                ...oldIssue,
-                action_taken: actionTaken || oldIssue.action_taken,
-              });
-            }
+            resolvedNow.push({
+              id: `${key}-${Date.now()}`,
+              ...oldIssue,
+              resolvedAt: new Date().toISOString(),
+              action_taken: String(latestAudit?.action || oldIssue.action_taken || ""),
+            });
           }
         });
 
         if (resolvedNow.length > 0) {
           setSolvedIssues((prev) => [...resolvedNow, ...prev].slice(0, 25));
-        }
-
-        for (const issue of carryForwardIssues) {
-          incomingMap.set(`${issue.workflow_id}|${issue.step_id}`, issue);
         }
 
         activeIssueMapRef.current = incomingMap;
@@ -232,10 +212,7 @@ export default function App() {
             seenInjectedIssuesRef.current = true;
           }
 
-          if (
-            seenInjectedIssuesRef.current &&
-            scopedIncomingIssues.length === 0
-          ) {
+          if (seenInjectedIssuesRef.current && incomingMap.size === 0) {
             resolutionLockedRef.current = false;
             setResolutionLocked(false);
             seenInjectedIssuesRef.current = false;
@@ -366,14 +343,6 @@ export default function App() {
       return;
     }
 
-    setSolvedIssues([]);
-    setActiveIssues([]);
-    activeIssueMapRef.current = new Map();
-    seenInjectedIssuesRef.current = false;
-    setCurrentRunId(null);
-    setCurrentRunWorkflowIds([]);
-    setHeatmapRevision((prev) => prev + 1);
-
     setLoading(true);
     try {
       const res = await injectChaos();
@@ -381,6 +350,16 @@ export default function App() {
       const workflowIds = Array.isArray(res.data?.workflow_ids)
         ? res.data.workflow_ids
         : parseInjectedWorkflowIds(res.data?.failures_injected);
+
+      // Reset local view only after backend confirmed a fresh Break It run.
+      setSolvedIssues([]);
+      setActiveIssues([]);
+      activeIssueMapRef.current = new Map();
+      seenInjectedIssuesRef.current = false;
+      setCurrentRunId(null);
+      setCurrentRunWorkflowIds([]);
+      setHeatmapRevision((prev) => prev + 1);
+
       resolutionLockedRef.current = true;
       setResolutionLocked(true);
       setCurrentRunId(runId);

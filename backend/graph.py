@@ -392,6 +392,7 @@ def run_cycle() -> list[dict[str, Any]]:
         print("[CYCLE] Skipping run_cycle: another cycle is already in progress", file=sys.stderr)
         return []
 
+    diagnosis_agent.begin_cycle()
     app = _build_graph()
     try:
         final_state = app.invoke({"issues": [], "audit_entries": [], "pipeline_results": []})

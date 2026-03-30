@@ -1,5 +1,5 @@
 """
-Test gates for Process Autopsy Agent — Phase 1 (with Phase 2 invariants).
+Test gates for Workflow Autopsy — Phase 1 (with Phase 2 invariants).
 Validates all API endpoints and DB invariants.
 
 Run: python tests/test_api.py  (server must be running on port 8000)

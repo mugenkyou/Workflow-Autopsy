@@ -508,7 +508,7 @@ export default function App() {
     <div className="app">
       {/* Header */}
       <div className="header">
-        <h1>Process Autopsy Agent</h1>
+        <h1>Workflow Autopsy</h1>
         <div className="header-actions">
           {(resolutionLocked || activeIssues.length > 0) && (
             <span className="resolving-chip">Agent resolving issues...</span>

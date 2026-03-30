@@ -1,5 +1,5 @@
 """
-Database module for Process Autopsy Agent.
+Database module for Workflow Autopsy.
 Handles SQLite connection, schema initialization, and seed data.
 """
 

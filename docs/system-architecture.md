@@ -1,6 +1,6 @@
 # System Architecture
 
-This document defines the runtime architecture of Process Autopsy Agent and provides the canonical diagram sources used by the project.
+This document defines the runtime architecture of Workflow Autopsy and provides the canonical diagram sources used by the project.
 
 ## Component Topology
 

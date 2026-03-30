@@ -1,10 +1,10 @@
-# Process Autopsy Agent - System Architecture
+# Workflow Autopsy - System Architecture
 
 Autonomous system for detecting, diagnosing, and resolving workflow failures in real time.
 
 ## System Overview
 
-Process Autopsy Agent continuously monitors purchase-to-pay workflows, detects stalled steps, and executes policy-safe remediation without waiting for manual triage. It exists to reduce payment delays, prevent SLA breaches, and provide operators with immediate visibility into why each intervention happened. The system combines autonomous execution with strict deterministic controls: diagnosis can be AI-assisted, but action selection remains rule-bound and auditable. Every issue lifecycle is persisted as evidence, so the platform is explainable under operational and compliance review. Over time, historical stall behavior feeds a learning loop that improves prioritization and intervention quality.
+Workflow Autopsy continuously monitors purchase-to-pay workflows, detects stalled steps, and executes policy-safe remediation without waiting for manual triage. It exists to reduce payment delays, prevent SLA breaches, and provide operators with immediate visibility into why each intervention happened. The system combines autonomous execution with strict deterministic controls: diagnosis can be AI-assisted, but action selection remains rule-bound and auditable. Every issue lifecycle is persisted as evidence, so the platform is explainable under operational and compliance review. Over time, historical stall behavior feeds a learning loop that improves prioritization and intervention quality.
 
 ## Architecture Diagram
 

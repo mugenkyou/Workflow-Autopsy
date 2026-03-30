@@ -1,5 +1,5 @@
 """
-FastAPI application for Process Autopsy Agent — Phase 1.
+FastAPI application for Workflow Autopsy — Phase 1.
 """
 
 from contextlib import asynccontextmanager
@@ -182,7 +182,7 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="Process Autopsy Agent",
+    title="Workflow Autopsy",
     description="Phase 1 — Foundation Backend",
     version="0.1.0",
     lifespan=lifespan,
